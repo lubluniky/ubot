@@ -96,6 +96,41 @@ check_requirements() {
     fi
 }
 
+# Wait for Docker to be ready
+wait_for_docker() {
+    local max_attempts=30
+    local attempt=1
+
+    info "Waiting for Docker to start..."
+    while [ $attempt -le $max_attempts ]; do
+        if docker info &> /dev/null; then
+            success "Docker is ready!"
+            return 0
+        fi
+        echo -ne "\r  Waiting... ($attempt/$max_attempts)"
+        sleep 2
+        ((attempt++))
+    done
+    echo ""
+    return 1
+}
+
+# Start Docker Desktop on macOS
+start_docker_macos() {
+    if docker info &> /dev/null; then
+        return 0
+    fi
+
+    info "Starting Docker Desktop..."
+    open -a Docker 2>/dev/null || open /Applications/Docker.app 2>/dev/null || return 1
+
+    if wait_for_docker; then
+        return 0
+    else
+        error "Docker failed to start. Please start Docker Desktop manually and re-run the installer."
+    fi
+}
+
 # Install Docker if needed
 install_docker() {
     if has_cmd docker; then
@@ -107,11 +142,11 @@ install_docker() {
         else
             warn "Docker daemon is not running"
             if [[ "$PLATFORM" == "darwin" ]]; then
-                info "Please start Docker Desktop and re-run this installer"
-                exit 1
+                start_docker_macos
             else
                 info "Attempting to start Docker..."
                 sudo systemctl start docker || error "Failed to start Docker"
+                wait_for_docker || error "Docker failed to start"
                 success "Docker started"
             fi
         fi
@@ -124,10 +159,46 @@ install_docker() {
         if has_cmd brew; then
             info "Installing Docker via Homebrew..."
             brew install --cask docker
-            info "Please start Docker Desktop from Applications, then re-run this installer"
-            exit 0
+            info "Starting Docker Desktop..."
+            open -a Docker 2>/dev/null || open /Applications/Docker.app 2>/dev/null
+
+            if wait_for_docker; then
+                success "Docker installed and running!"
+            else
+                warn "Docker installed but not yet running."
+                info "Please wait for Docker Desktop to fully start, then re-run this installer."
+                exit 0
+            fi
         else
-            error "Please install Docker Desktop from https://docker.com/products/docker-desktop"
+            info "Homebrew not found. Installing Docker Desktop manually..."
+
+            # Download Docker Desktop DMG
+            DOCKER_DMG="Docker.dmg"
+            if [[ "$ARCH" == "arm64" ]]; then
+                DOCKER_URL="https://desktop.docker.com/mac/main/arm64/Docker.dmg"
+            else
+                DOCKER_URL="https://desktop.docker.com/mac/main/amd64/Docker.dmg"
+            fi
+
+            info "Downloading Docker Desktop..."
+            curl -fsSL -o "/tmp/$DOCKER_DMG" "$DOCKER_URL"
+
+            info "Installing Docker Desktop..."
+            hdiutil attach "/tmp/$DOCKER_DMG" -quiet
+            cp -R "/Volumes/Docker/Docker.app" /Applications/ 2>/dev/null || \
+                sudo cp -R "/Volumes/Docker/Docker.app" /Applications/
+            hdiutil detach "/Volumes/Docker" -quiet
+            rm "/tmp/$DOCKER_DMG"
+
+            info "Starting Docker Desktop..."
+            open /Applications/Docker.app
+
+            if wait_for_docker; then
+                success "Docker installed and running!"
+            else
+                warn "Docker installed. Please wait for it to fully start, then re-run this installer."
+                exit 0
+            fi
         fi
     elif [[ "$PLATFORM" == "linux" ]]; then
         info "Installing Docker via official script..."
@@ -136,13 +207,15 @@ install_docker() {
         # Add user to docker group
         if [ "$EUID" -ne 0 ]; then
             sudo usermod -aG docker "$USER"
-            warn "You've been added to the docker group. Please log out and back in, then re-run this installer."
-            exit 0
+            # Use newgrp to apply group changes in current session
+            info "Applying docker group permissions..."
         fi
 
         # Start and enable Docker
         sudo systemctl start docker
         sudo systemctl enable docker
+
+        wait_for_docker || error "Docker failed to start"
         success "Docker installed and started"
     fi
 }
@@ -528,19 +601,211 @@ print_complete() {
     echo ""
 }
 
+# Select installation mode
+select_install_mode() {
+    step "Select installation mode..."
+    echo ""
+    echo "  1) Docker (recommended) - Isolated, secure, easy updates"
+    echo "  2) Native - Direct Go binary, no Docker needed"
+    echo ""
+    read -p "  Select mode [1-2] (default: 1): " mode_choice
+
+    case "${mode_choice:-1}" in
+        2) INSTALL_MODE="native" ;;
+        *) INSTALL_MODE="docker" ;;
+    esac
+
+    success "Installation mode: $INSTALL_MODE"
+}
+
+# Install Go if needed (for native mode)
+install_go() {
+    if has_cmd go; then
+        GO_VERSION=$(go version | awk '{print $3}')
+        success "Go found: $GO_VERSION"
+        return 0
+    fi
+
+    step "Installing Go..."
+
+    GO_VERSION="1.23.0"
+    if [[ "$PLATFORM" == "darwin" ]]; then
+        if has_cmd brew; then
+            brew install go
+        else
+            curl -fsSL "https://go.dev/dl/go${GO_VERSION}.darwin-${ARCH}.tar.gz" -o /tmp/go.tar.gz
+            sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+            rm /tmp/go.tar.gz
+            export PATH=$PATH:/usr/local/go/bin
+        fi
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tar.gz
+        sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+        rm /tmp/go.tar.gz
+        export PATH=$PATH:/usr/local/go/bin
+    fi
+
+    if has_cmd go; then
+        success "Go installed: $(go version | awk '{print $3}')"
+    else
+        error "Failed to install Go"
+    fi
+}
+
+# Build native binary
+build_native() {
+    step "Building native binary..."
+
+    cd "$REPO_DIR"
+
+    # Build with version info
+    VERSION=$(git describe --tags 2>/dev/null || echo "0.1.0")
+    GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    info "Version: $VERSION (commit: $GIT_COMMIT)"
+
+    go build -ldflags="-s -w \
+        -X 'github.com/hkuds/ubot/cmd/ubot/cmd.Version=${VERSION}' \
+        -X 'github.com/hkuds/ubot/cmd/ubot/cmd.GitCommit=${GIT_COMMIT}' \
+        -X 'github.com/hkuds/ubot/cmd/ubot/cmd.BuildDate=${BUILD_DATE}'" \
+        -o "$INSTALL_DIR/bin/ubot" ./cmd/ubot/
+
+    success "Binary built: $INSTALL_DIR/bin/ubot"
+}
+
+# Create helper scripts for native mode
+create_native_scripts() {
+    step "Creating helper scripts (native mode)..."
+
+    BIN_DIR="$HOME/.local/bin"
+    mkdir -p "$BIN_DIR"
+
+    # Symlink or wrapper
+    cat > "$BIN_DIR/ubot" << SCRIPT
+#!/bin/bash
+UBOT_DIR="\$HOME/.ubot"
+UBOT_BIN="\$UBOT_DIR/bin/ubot"
+
+case "\${1:-help}" in
+    start|gateway)
+        echo "Starting uBot gateway..."
+        nohup "\$UBOT_BIN" gateway > "\$UBOT_DIR/ubot.log" 2>&1 &
+        echo \$! > "\$UBOT_DIR/ubot.pid"
+        echo "uBot is running (PID: \$(cat \$UBOT_DIR/ubot.pid)). Check logs with: ubot logs"
+        ;;
+    stop)
+        echo "Stopping uBot..."
+        if [ -f "\$UBOT_DIR/ubot.pid" ]; then
+            kill \$(cat "\$UBOT_DIR/ubot.pid") 2>/dev/null && rm "\$UBOT_DIR/ubot.pid"
+            echo "Stopped."
+        else
+            echo "uBot is not running"
+        fi
+        ;;
+    restart)
+        \$0 stop
+        sleep 1
+        \$0 start
+        ;;
+    logs)
+        tail -f "\$UBOT_DIR/ubot.log" 2>/dev/null || echo "No logs found"
+        ;;
+    status)
+        "\$UBOT_BIN" status
+        ;;
+    chat)
+        shift
+        "\$UBOT_BIN" agent "\$@"
+        ;;
+    setup)
+        "\$UBOT_BIN" setup
+        ;;
+    config)
+        \${EDITOR:-nano} "\$UBOT_DIR/config.json"
+        ;;
+    update)
+        echo "Updating uBot..."
+        cd "\$UBOT_DIR/repo" && git pull
+        go build -o "\$UBOT_BIN" ./cmd/ubot/
+        echo "Update complete. Restart with: ubot restart"
+        ;;
+    destroy)
+        echo ""
+        echo -e "\033[1;31m⚠️  WARNING: This will permanently delete uBot and all its data!\033[0m"
+        echo ""
+        echo "This includes:"
+        echo "  - uBot binary and repository"
+        echo "  - Configuration (~/.ubot/config.json)"
+        echo "  - Workspace and memory (~/.ubot/workspace/)"
+        echo "  - Session history"
+        echo ""
+        read -p "Are you sure? Type 'destroy' to confirm: " confirm
+        if [ "\$confirm" = "destroy" ]; then
+            \$0 stop 2>/dev/null
+            rm -rf "\$UBOT_DIR"
+            rm -f "\$HOME/.local/bin/ubot"
+            echo ""
+            echo -e "\033[0;32m✓ uBot has been completely removed.\033[0m"
+        else
+            echo "Aborted."
+        fi
+        ;;
+    *)
+        echo "uBot - The World's Most Lightweight Self-Hosted AI Assistant"
+        echo ""
+        echo "Usage: ubot <command>"
+        echo ""
+        echo "Commands:"
+        echo "  start     Start the gateway (Telegram, etc.)"
+        echo "  stop      Stop the gateway"
+        echo "  restart   Restart the gateway"
+        echo "  logs      Show gateway logs"
+        echo "  status    Show configuration status"
+        echo "  chat      Interactive chat mode"
+        echo "  chat -m   Send a single message"
+        echo "  setup     Run setup wizard"
+        echo "  config    Edit configuration"
+        echo "  update    Update to latest version"
+        echo "  destroy   Remove uBot completely"
+        echo ""
+        ;;
+esac
+SCRIPT
+
+    chmod +x "$BIN_DIR/ubot"
+    success "Created ubot command at $BIN_DIR/ubot"
+
+    # Add to PATH if needed
+    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+        warn "Add this to your ~/.bashrc or ~/.zshrc:"
+        echo -e "  ${CYAN}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
+    fi
+}
+
 # Main installation flow
 main() {
     print_banner
 
     detect_os
     check_requirements
+    select_install_mode
     install_git
-    install_docker
-    setup_repository
-    build_image
-    setup_config
-    create_service
-    create_scripts
+
+    if [[ "$INSTALL_MODE" == "docker" ]]; then
+        install_docker
+        setup_repository
+        build_image
+        setup_config
+        create_service
+        create_scripts
+    else
+        install_go
+        setup_repository
+        build_native
+        setup_config
+        create_native_scripts
+    fi
 
     print_complete
 }
