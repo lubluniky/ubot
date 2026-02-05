@@ -581,10 +581,71 @@ SCRIPT
 
     success "Created ubot command at $BIN_DIR/ubot"
 
-    # Add to PATH if needed
-    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-        warn "Add this to your ~/.bashrc or ~/.zshrc:"
-        echo -e "  ${CYAN}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
+    # Add to PATH automatically
+    add_to_path
+}
+
+# Add ~/.local/bin to PATH in shell config
+add_to_path() {
+    BIN_DIR="$HOME/.local/bin"
+    PATH_EXPORT='export PATH="$HOME/.local/bin:$PATH"'
+
+    # Check if already in PATH
+    if [[ ":$PATH:" == *":$BIN_DIR:"* ]]; then
+        success "PATH already configured"
+        return 0
+    fi
+
+    step "Adding ubot to PATH..."
+
+    # Detect shell and config file
+    SHELL_NAME=$(basename "$SHELL")
+    ADDED=0
+
+    case "$SHELL_NAME" in
+        zsh)
+            SHELL_RC="$HOME/.zshrc"
+            ;;
+        bash)
+            # On macOS, bash uses .bash_profile for login shells
+            if [[ "$PLATFORM" == "darwin" ]]; then
+                SHELL_RC="$HOME/.bash_profile"
+            else
+                SHELL_RC="$HOME/.bashrc"
+            fi
+            ;;
+        *)
+            SHELL_RC="$HOME/.profile"
+            ;;
+    esac
+
+    # Check if already added to config
+    if [ -f "$SHELL_RC" ] && grep -q '\.local/bin' "$SHELL_RC" 2>/dev/null; then
+        success "PATH export already in $SHELL_RC"
+        ADDED=1
+    else
+        # Add to shell config
+        echo "" >> "$SHELL_RC"
+        echo "# Added by uBot installer" >> "$SHELL_RC"
+        echo "$PATH_EXPORT" >> "$SHELL_RC"
+        success "Added PATH to $SHELL_RC"
+        ADDED=1
+    fi
+
+    # Also add to .profile for login shells (Linux)
+    if [[ "$PLATFORM" == "linux" ]] && [ "$SHELL_RC" != "$HOME/.profile" ]; then
+        if [ -f "$HOME/.profile" ] && ! grep -q '\.local/bin' "$HOME/.profile" 2>/dev/null; then
+            echo "" >> "$HOME/.profile"
+            echo "# Added by uBot installer" >> "$HOME/.profile"
+            echo "$PATH_EXPORT" >> "$HOME/.profile"
+        fi
+    fi
+
+    # Export for current session
+    export PATH="$HOME/.local/bin:$PATH"
+
+    if [ "$ADDED" = "1" ]; then
+        info "Run 'source $SHELL_RC' or restart terminal to use 'ubot' command"
     fi
 }
 
@@ -794,11 +855,8 @@ SCRIPT
     chmod +x "$BIN_DIR/ubot"
     success "Created ubot command at $BIN_DIR/ubot"
 
-    # Add to PATH if needed
-    if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-        warn "Add this to your ~/.bashrc or ~/.zshrc:"
-        echo -e "  ${CYAN}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
-    fi
+    # Add to PATH automatically
+    add_to_path
 }
 
 # Main installation flow
