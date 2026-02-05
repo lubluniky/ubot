@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  ubot:
+    build:
+      context: .
+      args:
+        VERSION: "0.1.0"
+        GIT_COMMIT: "${GIT_COMMIT:-dev}"
+        BUILD_DATE: "${BUILD_DATE:-unknown}"
+    image: ubot:latest
+    container_name: ubot
+    restart: unless-stopped
+
+    # Mount config and workspace
+    volumes:
+      - ~/.ubot:/home/ubot/.ubot
+
+    # Expose gateway port
+    ports:
+      - "18790:18790"
+
+    # Environment variables (optional overrides)
+    environment:
+      - TZ=${TZ:-UTC}
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Read-only root filesystem (data stored in volume)
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "ubot", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Run with gVisor for maximum isolation
+  ubot-sandboxed:
+    extends:
+      service: ubot
+    container_name: ubot-sandboxed
+    runtime: runsc  # Requires gVisor installed
+    profiles:
+      - sandboxed  # Only start with: docker compose --profile sandboxed up
