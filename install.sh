@@ -643,10 +643,6 @@ add_to_path() {
 
     # Export for current session
     export PATH="$HOME/.local/bin:$PATH"
-
-    if [ "$ADDED" = "1" ]; then
-        info "Run 'source $SHELL_RC' or restart terminal to use 'ubot' command"
-    fi
 }
 
 # Print completion message
@@ -677,6 +673,8 @@ print_complete() {
     echo -e "${MAGENTA}  Shipped to you by ${BOLD}Borkiss${NC}"
     echo -e "${MAGENTA}  https://github.com/lubluniky${NC}"
     echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  ${CYAN}Restarting shell to apply PATH...${NC}"
     echo ""
 }
 
@@ -888,3 +886,6 @@ main() {
 
 # Run main
 main "$@"
+
+# Restart shell to apply PATH changes
+exec $SHELL
