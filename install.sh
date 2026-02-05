@@ -536,11 +536,27 @@ case "${1:-help}" in
         read -p "Are you sure? Type 'destroy' to confirm: " confirm
         if [ "$confirm" = "destroy" ]; then
             echo ""
-            echo "Stopping uBot..."
+            echo "Stopping uBot containers..."
             docker stop ubot 2>/dev/null || true
-            echo "Removing Docker image..."
-            docker rmi ubot:latest 2>/dev/null || true
-            docker rmi ubot 2>/dev/null || true
+            docker stop ubot-sandboxed 2>/dev/null || true
+            docker rm ubot-sandboxed 2>/dev/null || true
+            echo "Removing Docker images..."
+            docker images --filter=reference='ubot' -q | xargs docker rmi 2>/dev/null || true
+            echo "Removing systemd service (if any)..."
+            if [ -f /etc/systemd/system/ubot.service ]; then
+                sudo systemctl stop ubot 2>/dev/null || true
+                sudo systemctl disable ubot 2>/dev/null || true
+                sudo rm -f /etc/systemd/system/ubot.service
+                sudo systemctl daemon-reload 2>/dev/null || true
+            fi
+            echo "Cleaning PATH entries from shell configs..."
+            for rcfile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+                if [ -f "$rcfile" ]; then
+                    sed -i.bak -e '/# Added by uBot installer/d' -e '/export PATH=.*\.local\/bin/d' "$rcfile" 2>/dev/null || \
+                        sed -i '' -e '/# Added by uBot installer/d' -e '/export PATH=.*\.local\/bin/d' "$rcfile" 2>/dev/null || true
+                    rm -f "${rcfile}.bak"
+                fi
+            done
             echo "Removing data directory..."
             rm -rf "$UBOT_DIR"
             echo "Removing ubot command..."
@@ -568,6 +584,7 @@ case "${1:-help}" in
         echo "  setup     Run setup wizard"
         echo "  config    Edit configuration"
         echo "  update    Update to latest version"
+        echo "  destroy   Remove uBot completely"
         echo ""
         echo "Examples:"
         echo "  ubot start"
@@ -820,10 +837,26 @@ case "\${1:-help}" in
         read -p "Are you sure? Type 'destroy' to confirm: " confirm
         if [ "\$confirm" = "destroy" ]; then
             \$0 stop 2>/dev/null
+            if [ -f /etc/systemd/system/ubot.service ]; then
+                echo "Removing systemd service..."
+                sudo systemctl stop ubot 2>/dev/null || true
+                sudo systemctl disable ubot 2>/dev/null || true
+                sudo rm -f /etc/systemd/system/ubot.service
+                sudo systemctl daemon-reload 2>/dev/null || true
+            fi
+            echo "Cleaning PATH entries from shell configs..."
+            for rcfile in "\$HOME/.zshrc" "\$HOME/.bashrc" "\$HOME/.bash_profile" "\$HOME/.profile"; do
+                if [ -f "\$rcfile" ]; then
+                    sed -i.bak -e '/# Added by uBot installer/d' -e '/export PATH=.*\.local\/bin/d' "\$rcfile" 2>/dev/null || \
+                        sed -i '' -e '/# Added by uBot installer/d' -e '/export PATH=.*\.local\/bin/d' "\$rcfile" 2>/dev/null || true
+                    rm -f "\${rcfile}.bak"
+                fi
+            done
             rm -rf "\$UBOT_DIR"
             rm -f "\$HOME/.local/bin/ubot"
             echo ""
             echo -e "\033[0;32m✓ uBot has been completely removed.\033[0m"
+            echo "Thank you for using uBot!"
         else
             echo "Aborted."
         fi

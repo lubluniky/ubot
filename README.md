@@ -24,7 +24,9 @@
 - **Multi-Provider** — OpenRouter, GitHub Copilot, Anthropic, OpenAI, Ollama
 - **Multi-Channel** — Telegram, WhatsApp (скоро), CLI
 - **Tool System** — файлы, shell, web search, web fetch
-- **Skill System** — расширяй возможности через SKILL.md файлы
+- **Security Middleware** — защита от доступа к чувствительным файлам и опасным командам
+- **Skill System** — расширяй возможности через SKILL.md файлы + CLI управление
+- **Self-Management** — бот может управлять собой (конфиг, рестарт) из CLI
 - **MCP Support** — подключай внешние инструменты через Model Context Protocol
 - **Secure Sandbox** — Docker-based изоляция с gVisor поддержкой
 - **Interactive TUI** — красивый setup wizard
@@ -67,6 +69,12 @@ ubot setup       # Мастер настройки
 ubot config      # Редактировать конфиг
 ubot update      # Обновить до последней версии
 ubot destroy     # Полное удаление
+
+# Skills Management
+ubot skills list              # Список установленных и доступных скиллов
+ubot skills install <name>    # Установить скилл из репозитория
+ubot skills uninstall <name>  # Удалить скилл
+ubot skills info <name>       # Информация о скилле
 ```
 
 ## Configuration
@@ -207,9 +215,9 @@ ubot/
 │   ├── mcp/            # MCP client & manager
 │   ├── providers/      # LLM providers
 │   ├── sandbox/        # Docker sandboxing
-│   ├── session/        # Conversation sessions
-│   ├── skills/         # Skill loader & parser
-│   ├── tools/          # Built-in tools
+│   ├── session/        # Conversation sessions (+ Source field)
+│   ├── skills/         # Skill loader, parser & manager
+│   ├── tools/          # Built-in tools + security.go + manage.go
 │   └── tui/            # Terminal UI
 ├── skills/             # Bundled skills
 ├── install.sh          # One-line installer
@@ -238,12 +246,38 @@ docker run -it --rm \
 
 ## Security
 
+uBot использует многоуровневую систему безопасности:
+
+### Security Middleware (`internal/tools/security.go`)
+
+Все вызовы инструментов проходят через `SecureRegistry` — обёртку над `ToolRegistry`:
+
+- **Блокировка чувствительных путей** — `~/.ssh/`, `~/.gnupg/`, `~/.aws/`, `~/.kube/`, `*.pem`, `*.key`, `.env`, `/etc/shadow`
+- **Валидация параметров** — `ValidateParams()` проверяет JSON Schema перед каждым вызовом
+- **Guard для exec** — интеграция с `sandbox.GuardCommand()` для блокировки опасных команд
+- **Symlink resolution** — пути разрешаются через `filepath.EvalSymlinks` (обход `/etc` -> `/private/etc` на macOS)
+- **Audit logging** — логирование всех вызовов инструментов с временем и статусом
+
+### Sandbox
+
 - **Sandboxed Execution** — команды выполняются в изолированных Docker контейнерах
 - **gVisor Support** — опциональная kernel-level изоляция
 - **Command Guards** — блокировка опасных команд (rm -rf, fork bombs, etc.)
 - **Resource Limits** — лимиты CPU, памяти, PID
 - **Non-root Container** — запуск от непривилегированного пользователя
 - **Read-only Filesystem** — защита от модификации
+
+### Self-Management (CLI Only)
+
+Бот может управлять собой через инструмент `manage_ubot`, но **только из CLI**:
+
+```
+manage_ubot action=show_config     # Показать текущий конфиг
+manage_ubot action=update_config key=agents.defaults.model value=gpt-4
+manage_ubot action=restart         # Запросить перезапуск
+```
+
+При вызове из Telegram/WhatsApp — автоматический отказ "Permission Denied". Контроль через поле `Session.Source`, которое устанавливается автоматически для каждого канала.
 
 ## Comparison
 
@@ -277,10 +311,12 @@ go build -ldflags="-X 'main.Version=1.0.0'" ./cmd/ubot/
 ubot destroy
 ```
 
-Это удалит:
-- Docker контейнер и образ
-- Конфигурацию (~/.ubot/)
-- Команду ubot
+Полная очистка:
+- Docker контейнеры (`ubot`, `ubot-sandboxed`) и **все** образы (включая версионные теги)
+- Конфигурацию и данные (`~/.ubot/`)
+- Команду `~/.local/bin/ubot`
+- PATH записи из shell конфигов (`~/.zshrc`, `~/.bashrc`, `~/.bash_profile`, `~/.profile`)
+- Systemd сервис на Linux (`/etc/systemd/system/ubot.service`)
 
 ---
 

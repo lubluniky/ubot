@@ -24,7 +24,8 @@ type ToolCallInfo struct {
 
 // Session represents a conversation session with history
 type Session struct {
-	Key       string                 `json:"key"` // channel:chatId
+	Key       string                 `json:"key"`                // channel:chatId
+	Source    string                 `json:"source,omitempty"`   // "cli", "telegram", "whatsapp"
 	Messages  []Message              `json:"messages"`
 	CreatedAt time.Time              `json:"createdAt"`
 	UpdatedAt time.Time              `json:"updatedAt"`

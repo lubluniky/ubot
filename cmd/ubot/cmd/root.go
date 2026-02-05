@@ -22,4 +22,5 @@ func init() {
 	rootCmd.AddCommand(gatewayCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(skillsCmd)
 }

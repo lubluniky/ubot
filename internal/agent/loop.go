@@ -20,7 +20,7 @@ type Loop struct {
 	bus      *bus.MessageBus
 	provider providers.Provider
 	sessions *session.Manager
-	tools    *tools.ToolRegistry
+	tools    *tools.SecureRegistry
 	config   *config.Config
 
 	messageTool *tools.MessageTool
@@ -82,11 +82,14 @@ func NewLoop(cfg LoopConfig) (*Loop, error) {
 	// Create context builder
 	contextBuilder := NewContextBuilder(cfg.Config)
 
+	// Wrap registry with security middleware
+	secureReg := tools.NewSecureRegistry(registry)
+
 	return &Loop{
 		bus:         cfg.Bus,
 		provider:    cfg.Provider,
 		sessions:    sessions,
-		tools:       registry,
+		tools:       secureReg,
 		config:      cfg.Config,
 		messageTool: messageTool,
 		context:     contextBuilder,
@@ -320,12 +323,12 @@ func (l *Loop) RegisterTool(t tools.Tool) error {
 
 // UnregisterTool removes a tool from the loop's registry.
 func (l *Loop) UnregisterTool(name string) {
-	l.tools.Unregister(name)
+	l.tools.Inner().Unregister(name)
 }
 
-// GetToolRegistry returns the tool registry.
+// GetToolRegistry returns the underlying tool registry.
 func (l *Loop) GetToolRegistry() *tools.ToolRegistry {
-	return l.tools
+	return l.tools.Inner()
 }
 
 // GetSessionManager returns the session manager.

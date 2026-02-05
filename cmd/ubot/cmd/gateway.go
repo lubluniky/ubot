@@ -78,6 +78,13 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	// Register skill tools
 	registerSkillTools(registry, skillsLoader)
 
+	// Register manage_ubot tool
+	manageUbotTool := tools.NewManageUbotTool("")
+	registry.Register(manageUbotTool)
+
+	// Wrap registry with security middleware
+	secureReg := tools.NewSecureRegistry(registry)
+
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -101,7 +108,7 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		runAgentLoop(ctx, msgBus, provider, sessionMgr, registry, cfg, skillsSummary)
+		runAgentLoop(ctx, msgBus, provider, sessionMgr, secureReg, cfg, skillsSummary, manageUbotTool)
 	}()
 
 	// Start channel connectors
@@ -152,7 +159,7 @@ func runGateway(cmd *cobra.Command, args []string) error {
 }
 
 // runAgentLoop processes inbound messages and sends responses.
-func runAgentLoop(ctx context.Context, msgBus *bus.MessageBus, provider providers.Provider, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config, skillsSummary string) {
+func runAgentLoop(ctx context.Context, msgBus *bus.MessageBus, provider providers.Provider, sessionMgr *session.Manager, registry *tools.SecureRegistry, cfg *config.Config, skillsSummary string, manageUbotTool *tools.ManageUbotTool) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -173,14 +180,19 @@ func runAgentLoop(ctx context.Context, msgBus *bus.MessageBus, provider provider
 		}
 
 		// Process message in a goroutine
-		go processMessage(ctx, msgBus, provider, sessionMgr, registry, cfg, msg, skillsSummary)
+		go processMessage(ctx, msgBus, provider, sessionMgr, registry, cfg, msg, skillsSummary, manageUbotTool)
 	}
 }
 
 // processMessage handles a single inbound message.
-func processMessage(ctx context.Context, msgBus *bus.MessageBus, provider providers.Provider, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config, msg bus.InboundMessage, skillsSummary string) {
+func processMessage(ctx context.Context, msgBus *bus.MessageBus, provider providers.Provider, sessionMgr *session.Manager, registry *tools.SecureRegistry, cfg *config.Config, msg bus.InboundMessage, skillsSummary string, manageUbotTool *tools.ManageUbotTool) {
 	// Get or create session for this conversation
 	sess := sessionMgr.GetOrCreate(msg.SessionKey())
+	sess.Source = msg.Channel
+
+	// Set manage_ubot tool source context for this request
+	manageUbotTool.SetSource(msg.Channel)
+	defer manageUbotTool.ClearSource()
 
 	// Add user message to session
 	sess.AddMessage("user", msg.Content)

@@ -76,6 +76,14 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Register skill tools
 	registerSkillTools(registry, skillsLoader)
 
+	// Register manage_ubot tool (CLI always has access)
+	manageUbotTool := tools.NewManageUbotTool("")
+	manageUbotTool.SetSource("cli")
+	registry.Register(manageUbotTool)
+
+	// Wrap registry with security middleware
+	secureReg := tools.NewSecureRegistry(registry)
+
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -91,14 +99,14 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	// If message flag is provided, send single message and exit
 	if messageFlag != "" {
-		return sendSingleMessage(ctx, provider, sess, sessionMgr, registry, cfg, messageFlag, skillsSummary)
+		return sendSingleMessage(ctx, provider, sess, sessionMgr, secureReg, cfg, messageFlag, skillsSummary)
 	}
 
 	// Start interactive mode
-	return runInteractiveMode(ctx, provider, sess, sessionMgr, registry, cfg, skillsSummary)
+	return runInteractiveMode(ctx, provider, sess, sessionMgr, secureReg, cfg, skillsSummary)
 }
 
-func sendSingleMessage(ctx context.Context, provider providers.Provider, sess *session.Session, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config, message string, skillsSummary string) error {
+func sendSingleMessage(ctx context.Context, provider providers.Provider, sess *session.Session, sessionMgr *session.Manager, registry *tools.SecureRegistry, cfg *config.Config, message string, skillsSummary string) error {
 	// Add user message to session
 	sess.AddMessage("user", message)
 
@@ -165,7 +173,7 @@ func sendSingleMessage(ctx context.Context, provider providers.Provider, sess *s
 	return nil
 }
 
-func runInteractiveMode(ctx context.Context, provider providers.Provider, sess *session.Session, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config, skillsSummary string) error {
+func runInteractiveMode(ctx context.Context, provider providers.Provider, sess *session.Session, sessionMgr *session.Manager, registry *tools.SecureRegistry, cfg *config.Config, skillsSummary string) error {
 	fmt.Println("uBot Interactive Mode")
 	fmt.Println("Type your message and press Enter. Type 'exit' or 'quit' to leave.")
 	fmt.Println("Commands: /clear (clear history), /help (show help)")
