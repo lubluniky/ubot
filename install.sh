@@ -304,7 +304,7 @@ setup_config() {
 
     if [ -f "$CONFIG_FILE" ]; then
         info "Configuration already exists at $CONFIG_FILE"
-        read -p "Do you want to reconfigure? [y/N] " -n 1 -r
+        read -p "Do you want to reconfigure? [y/N] " -n 1 -r < /dev/tty
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             return 0
@@ -322,27 +322,27 @@ setup_config() {
     echo "  4) Ollama (local models, free)"
     echo "  5) Skip for now"
     echo ""
-    read -p "  Select provider [1-5]: " provider_choice
+    read -p "  Select provider [1-5]: " provider_choice < /dev/tty
 
     case $provider_choice in
         1)
             echo ""
             echo -e "  Get your API key at: ${BLUE}https://openrouter.ai/keys${NC}"
-            read -p "  Enter OpenRouter API key: " api_key
+            read -p "  Enter OpenRouter API key: " api_key < /dev/tty
             PROVIDER_CONFIG='"openrouter": { "apiKey": "'"$api_key"'" }'
             MODEL="anthropic/claude-sonnet-4-20250514"
             ;;
         2)
             echo ""
             echo -e "  Get your API key at: ${BLUE}https://platform.openai.com/api-keys${NC}"
-            read -p "  Enter OpenAI API key: " api_key
+            read -p "  Enter OpenAI API key: " api_key < /dev/tty
             PROVIDER_CONFIG='"openai": { "apiKey": "'"$api_key"'" }'
             MODEL="gpt-4o"
             ;;
         3)
             echo ""
             echo -e "  Get your API key at: ${BLUE}https://console.anthropic.com${NC}"
-            read -p "  Enter Anthropic API key: " api_key
+            read -p "  Enter Anthropic API key: " api_key < /dev/tty
             PROVIDER_CONFIG='"anthropic": { "apiKey": "'"$api_key"'" }'
             MODEL="claude-sonnet-4-20250514"
             ;;
@@ -364,7 +364,7 @@ setup_config() {
     echo -e "${BOLD}  Telegram Setup (optional)${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    read -p "  Setup Telegram bot? [y/N] " -n 1 -r
+    read -p "  Setup Telegram bot? [y/N] " -n 1 -r < /dev/tty
     echo
 
     TELEGRAM_ENABLED="false"
@@ -373,8 +373,8 @@ setup_config() {
 
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo -e "  Create a bot via ${BLUE}@BotFather${NC} on Telegram"
-        read -p "  Enter bot token: " TELEGRAM_TOKEN
-        read -p "  Enter your Telegram user ID (from @userinfobot): " TELEGRAM_ALLOW
+        read -p "  Enter bot token: " TELEGRAM_TOKEN < /dev/tty
+        read -p "  Enter your Telegram user ID (from @userinfobot): " TELEGRAM_ALLOW < /dev/tty
         TELEGRAM_ENABLED="true"
     fi
 
@@ -608,7 +608,7 @@ select_install_mode() {
     echo "  1) Docker (recommended) - Isolated, secure, easy updates"
     echo "  2) Native - Direct Go binary, no Docker needed"
     echo ""
-    read -p "  Select mode [1-2] (default: 1): " mode_choice
+    read -p "  Select mode [1-2] (default: 1): " mode_choice < /dev/tty
 
     case "${mode_choice:-1}" in
         2) INSTALL_MODE="native" ;;
