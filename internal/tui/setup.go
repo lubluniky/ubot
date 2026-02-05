@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hkuds/ubot/internal/config"
+	"github.com/hkuds/ubot/internal/skills"
 )
 
 // Provider represents an LLM provider option.
@@ -83,6 +84,8 @@ type SetupState struct {
 	ConfigWhatsApp bool
 	ConfigSearch   bool
 	SearchAPIKey   string
+	ConfigSkills   bool
+	SelectedSkills []string
 	Confirmed      bool
 }
 
@@ -118,7 +121,12 @@ func RunSetup() (*config.Config, error) {
 		return nil, fmt.Errorf("web search step failed: %w", err)
 	}
 
-	// Step 6: Confirmation
+	// Step 6: Skills Configuration
+	if err := runSkillsStep(state); err != nil {
+		return nil, fmt.Errorf("skills step failed: %w", err)
+	}
+
+	// Step 7: Confirmation
 	if err := runConfirmationStep(state); err != nil {
 		return nil, fmt.Errorf("confirmation step failed: %w", err)
 	}
@@ -435,6 +443,109 @@ func runWebSearchStep(state *SetupState) error {
 	return nil
 }
 
+// runSkillsStep configures skills from the remote repository.
+func runSkillsStep(state *SetupState) error {
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Install Skills?").
+				Description("Download and install AI skills from the community repository").
+				Value(&state.ConfigSkills),
+		),
+	)
+
+	if err := form.Run(); err != nil {
+		return err
+	}
+
+	if !state.ConfigSkills {
+		return nil
+	}
+
+	fmt.Println(subtitleStyle.Render("\nFetching available skills..."))
+
+	// Create skills manager
+	configDir := config.GetConfigDir()
+	workspacePath := config.GetConfigDir() + "/workspace" // Default workspace path
+	manager := skills.NewManager(configDir, workspacePath)
+
+	// Clone or update the skills repo
+	isNew, err := manager.EnsureRepo()
+	if err != nil {
+		fmt.Println(warningStyle.Render("Failed to fetch skills repository: " + err.Error()))
+		fmt.Println(subtitleStyle.Render("You can install skills manually later."))
+		return nil // Don't fail setup
+	}
+
+	if isNew {
+		fmt.Println(successStyle.Render("Skills repository downloaded!"))
+	} else {
+		fmt.Println(successStyle.Render("Skills repository updated!"))
+	}
+
+	// Discover available skills
+	if err := manager.DiscoverAvailable(); err != nil {
+		fmt.Println(warningStyle.Render("Failed to discover skills: " + err.Error()))
+		return nil
+	}
+
+	availableSkills := manager.ListAvailable()
+	if len(availableSkills) == 0 {
+		fmt.Println(subtitleStyle.Render("No skills found in the repository."))
+		return nil
+	}
+
+	fmt.Printf(subtitleStyle.Render("Found %d skills available.\n\n"), len(availableSkills))
+
+	// Build options for multi-select
+	options := make([]huh.Option[string], 0, len(availableSkills))
+	for _, skill := range availableSkills {
+		label := skill.Name
+		if skill.Category != "" {
+			label = fmt.Sprintf("[%s] %s", skill.Category, skill.Name)
+		}
+		if skill.Title != "" && skill.Title != skill.Name {
+			label = fmt.Sprintf("%s - %s", label, skill.Title)
+		}
+		options = append(options, huh.NewOption(label, skill.Name))
+	}
+
+	// Show multi-select form
+	skillsForm := huh.NewForm(
+		huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Select skills to install").
+				Description("Use space to select, enter to confirm").
+				Options(options...).
+				Value(&state.SelectedSkills),
+		),
+	)
+
+	if err := skillsForm.Run(); err != nil {
+		return err
+	}
+
+	// Install selected skills
+	if len(state.SelectedSkills) > 0 {
+		fmt.Println(subtitleStyle.Render("\nInstalling selected skills..."))
+		results := manager.InstallMultiple(state.SelectedSkills)
+
+		successCount := 0
+		for name, err := range results {
+			if err != nil {
+				fmt.Println(warningStyle.Render(fmt.Sprintf("  Failed to install %s: %s", name, err)))
+			} else {
+				fmt.Println(successStyle.Render(fmt.Sprintf("  Installed: %s", name)))
+				successCount++
+			}
+		}
+
+		fmt.Printf(subtitleStyle.Render("\nInstalled %d of %d skills.\n"), successCount, len(state.SelectedSkills))
+	}
+
+	return nil
+}
+
 // runConfirmationStep shows a summary and confirms the configuration.
 func runConfirmationStep(state *SetupState) error {
 	summary := buildSummary(state)
@@ -492,6 +603,18 @@ func buildSummary(state *SetupState) string {
 		sb.WriteString(fmt.Sprintf("Web Search: %s\n", successStyle.Render("enabled")))
 	} else {
 		sb.WriteString(fmt.Sprintf("Web Search: %s\n", subtitleStyle.Render("disabled")))
+	}
+
+	sb.WriteString("\n")
+
+	// Skills
+	if len(state.SelectedSkills) > 0 {
+		sb.WriteString(fmt.Sprintf("Skills: %s (%d installed)\n", successStyle.Render("enabled"), len(state.SelectedSkills)))
+		for _, skill := range state.SelectedSkills {
+			sb.WriteString(fmt.Sprintf("  - %s\n", skill))
+		}
+	} else {
+		sb.WriteString(fmt.Sprintf("Skills: %s\n", subtitleStyle.Render("none")))
 	}
 
 	return sb.String()
