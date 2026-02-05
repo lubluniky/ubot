@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"sync"
@@ -10,9 +11,12 @@ import (
 	"time"
 
 	"github.com/hkuds/ubot/internal/bus"
+	"github.com/hkuds/ubot/internal/channels"
 	"github.com/hkuds/ubot/internal/config"
+	"github.com/hkuds/ubot/internal/mcp"
 	"github.com/hkuds/ubot/internal/providers"
 	"github.com/hkuds/ubot/internal/session"
+	"github.com/hkuds/ubot/internal/skills"
 	"github.com/hkuds/ubot/internal/tools"
 	"github.com/spf13/cobra"
 )
@@ -60,13 +64,28 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	dataDir := cfg.WorkspacePath()
 	sessionMgr := session.NewManager(dataDir)
 
+	// Create skills loader and discover available skills
+	skillsLoader := skills.NewLoader(dataDir)
+	if err := skillsLoader.Discover(); err != nil {
+		log.Printf("Warning: failed to discover skills: %v", err)
+	}
+	skillsSummary := skillsLoader.GetSummary()
+
 	// Create tool registry with default tools
 	registry := tools.NewRegistry()
 	registerDefaultTools(registry, cfg)
 
+	// Register skill tools
+	registerSkillTools(registry, skillsLoader)
+
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Initialize MCP manager and connect to configured servers
+	mcpManager := mcp.NewManager()
+	defer mcpManager.Close()
+	registerMCPServers(ctx, mcpManager, cfg, registry)
 
 	// Handle signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -82,7 +101,7 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		runAgentLoop(ctx, msgBus, provider, sessionMgr, registry, cfg)
+		runAgentLoop(ctx, msgBus, provider, sessionMgr, registry, cfg, skillsSummary)
 	}()
 
 	// Start channel connectors
@@ -133,7 +152,7 @@ func runGateway(cmd *cobra.Command, args []string) error {
 }
 
 // runAgentLoop processes inbound messages and sends responses.
-func runAgentLoop(ctx context.Context, msgBus *bus.MessageBus, provider providers.Provider, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config) {
+func runAgentLoop(ctx context.Context, msgBus *bus.MessageBus, provider providers.Provider, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config, skillsSummary string) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -154,12 +173,12 @@ func runAgentLoop(ctx context.Context, msgBus *bus.MessageBus, provider provider
 		}
 
 		// Process message in a goroutine
-		go processMessage(ctx, msgBus, provider, sessionMgr, registry, cfg, msg)
+		go processMessage(ctx, msgBus, provider, sessionMgr, registry, cfg, msg, skillsSummary)
 	}
 }
 
 // processMessage handles a single inbound message.
-func processMessage(ctx context.Context, msgBus *bus.MessageBus, provider providers.Provider, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config, msg bus.InboundMessage) {
+func processMessage(ctx context.Context, msgBus *bus.MessageBus, provider providers.Provider, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config, msg bus.InboundMessage, skillsSummary string) {
 	// Get or create session for this conversation
 	sess := sessionMgr.GetOrCreate(msg.SessionKey())
 
@@ -167,7 +186,7 @@ func processMessage(ctx context.Context, msgBus *bus.MessageBus, provider provid
 	sess.AddMessage("user", msg.Content)
 
 	// Build messages for the LLM
-	messages := buildChatMessagesFromSession(sess)
+	messages := buildChatMessagesFromSession(sess, skillsSummary)
 
 	// Create chat request
 	req := providers.ChatRequest{
@@ -240,14 +259,31 @@ func processMessage(ctx context.Context, msgBus *bus.MessageBus, provider provid
 }
 
 // buildChatMessagesFromSession converts session messages to chat messages.
-func buildChatMessagesFromSession(sess *session.Session) []providers.ChatMessage {
+func buildChatMessagesFromSession(sess *session.Session, skillsSummary string) []providers.ChatMessage {
 	messages := sess.GetMessages()
 	chatMessages := make([]providers.ChatMessage, 0, len(messages)+1)
+
+	// Build system message with optional skills summary
+	systemContent := `You are uBot — the world's most lightweight self-hosted AI assistant.
+
+Key facts about yourself:
+- Ultra-minimal: ~10,000 lines of Go code (compared to 400k+ lines in similar projects)
+- Self-hosted: users run you on their own hardware, keeping data private
+- Multi-channel: you work through Telegram, WhatsApp, and CLI
+- Tool-capable: you can read/write files, execute commands, search the web
+- Fast: compiled Go binary, instant startup, minimal memory footprint
+
+Personality: Be helpful, concise, and technically competent. You're proud of being lightweight but not boastful. Answer in the user's language.`
+
+	// Append skills summary if available
+	if skillsSummary != "" {
+		systemContent += "\n\n" + skillsSummary
+	}
 
 	// Add system message
 	chatMessages = append(chatMessages, providers.ChatMessage{
 		Role:    "system",
-		Content: "You are uBot, a helpful AI assistant. You can use tools to help accomplish tasks. Be concise and helpful.",
+		Content: systemContent,
 	})
 
 	// Convert session messages to chat messages
@@ -271,12 +307,26 @@ func sendErrorResponse(msgBus *bus.MessageBus, msg bus.InboundMessage, errorMsg 
 }
 
 // runTelegramChannel starts the Telegram channel connector.
-// This is a placeholder that will be implemented when the Telegram channel is added.
 func runTelegramChannel(ctx context.Context, msgBus *bus.MessageBus, cfg *config.Config) {
-	// TODO: Implement Telegram channel connector
-	// For now, this is a placeholder that waits for context cancellation
-	fmt.Println("Telegram channel connector started (placeholder)")
+	// Get Groq API key for voice transcription (optional)
+	groqKey := cfg.Providers.Groq.APIKey
+
+	// Create the Telegram channel
+	telegramChannel := channels.NewTelegramChannel(cfg.Channels.Telegram, msgBus, groqKey)
+
+	// Start the channel
+	if err := telegramChannel.Start(ctx); err != nil {
+		log.Printf("Failed to start Telegram channel: %v", err)
+		return
+	}
+
+	// Wait for context cancellation
 	<-ctx.Done()
+
+	// Stop the channel gracefully
+	if err := telegramChannel.Stop(); err != nil {
+		log.Printf("Error stopping Telegram channel: %v", err)
+	}
 }
 
 // runWhatsAppChannel starts the WhatsApp channel connector.
@@ -286,4 +336,56 @@ func runWhatsAppChannel(ctx context.Context, msgBus *bus.MessageBus, cfg *config
 	// For now, this is a placeholder that waits for context cancellation
 	fmt.Println("WhatsApp channel connector started (placeholder)")
 	<-ctx.Done()
+}
+
+// registerSkillTools registers skill-related tools to the registry.
+func registerSkillTools(registry *tools.ToolRegistry, loader *skills.Loader) {
+	// Register read_skill tool
+	readSkillTool := tools.NewReadSkillTool(loader)
+	registry.Register(readSkillTool)
+
+	// Register list_skills tool
+	listSkillsTool := tools.NewListSkillsTool(loader)
+	registry.Register(listSkillsTool)
+}
+
+// registerMCPServers connects to configured MCP servers and registers their tools.
+func registerMCPServers(ctx context.Context, manager *mcp.Manager, cfg *config.Config, registry *tools.ToolRegistry) {
+	if len(cfg.MCP.Servers) == 0 {
+		return
+	}
+
+	fmt.Printf("Connecting to MCP servers...\n")
+
+	for _, serverCfg := range cfg.MCP.Servers {
+		// Convert config server to mcp.Server
+		server := mcp.Server{
+			Name:      serverCfg.Name,
+			Command:   serverCfg.Command,
+			Args:      serverCfg.Args,
+			URL:       serverCfg.URL,
+			Transport: serverCfg.Transport,
+			Env:       serverCfg.Env,
+		}
+
+		// Connect to the server
+		if err := manager.AddServer(ctx, server); err != nil {
+			log.Printf("Warning: failed to connect to MCP server %q: %v", serverCfg.Name, err)
+			continue
+		}
+
+		fmt.Printf("MCP server %q: connected\n", serverCfg.Name)
+	}
+
+	// Register all MCP tools with the tool registry
+	bridgedTools := manager.CreateBridgedTools()
+	for _, tool := range bridgedTools {
+		if err := registry.Register(tool); err != nil {
+			log.Printf("Warning: failed to register MCP tool %q: %v", tool.Name(), err)
+		}
+	}
+
+	if len(bridgedTools) > 0 {
+		fmt.Printf("MCP tools registered: %d\n", len(bridgedTools))
+	}
 }

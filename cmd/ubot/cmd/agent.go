@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/hkuds/ubot/internal/config"
 	"github.com/hkuds/ubot/internal/providers"
 	"github.com/hkuds/ubot/internal/session"
+	"github.com/hkuds/ubot/internal/skills"
 	"github.com/hkuds/ubot/internal/tools"
 	"github.com/spf13/cobra"
 )
@@ -60,9 +62,19 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Get or create CLI session
 	sess := sessionMgr.GetOrCreate("cli:default")
 
+	// Create skills loader and discover available skills
+	skillsLoader := skills.NewLoader(dataDir)
+	if err := skillsLoader.Discover(); err != nil {
+		log.Printf("Warning: failed to discover skills: %v", err)
+	}
+	skillsSummary := skillsLoader.GetSummary()
+
 	// Create tool registry with default tools
 	registry := tools.NewRegistry()
 	registerDefaultTools(registry, cfg)
+
+	// Register skill tools
+	registerSkillTools(registry, skillsLoader)
 
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -79,19 +91,19 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	// If message flag is provided, send single message and exit
 	if messageFlag != "" {
-		return sendSingleMessage(ctx, provider, sess, sessionMgr, registry, cfg, messageFlag)
+		return sendSingleMessage(ctx, provider, sess, sessionMgr, registry, cfg, messageFlag, skillsSummary)
 	}
 
 	// Start interactive mode
-	return runInteractiveMode(ctx, provider, sess, sessionMgr, registry, cfg)
+	return runInteractiveMode(ctx, provider, sess, sessionMgr, registry, cfg, skillsSummary)
 }
 
-func sendSingleMessage(ctx context.Context, provider providers.Provider, sess *session.Session, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config, message string) error {
+func sendSingleMessage(ctx context.Context, provider providers.Provider, sess *session.Session, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config, message string, skillsSummary string) error {
 	// Add user message to session
 	sess.AddMessage("user", message)
 
 	// Build messages for the LLM
-	messages := buildChatMessages(sess)
+	messages := buildChatMessages(sess, skillsSummary)
 
 	// Create chat request
 	req := providers.ChatRequest{
@@ -153,7 +165,7 @@ func sendSingleMessage(ctx context.Context, provider providers.Provider, sess *s
 	return nil
 }
 
-func runInteractiveMode(ctx context.Context, provider providers.Provider, sess *session.Session, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config) error {
+func runInteractiveMode(ctx context.Context, provider providers.Provider, sess *session.Session, sessionMgr *session.Manager, registry *tools.ToolRegistry, cfg *config.Config, skillsSummary string) error {
 	fmt.Println("uBot Interactive Mode")
 	fmt.Println("Type your message and press Enter. Type 'exit' or 'quit' to leave.")
 	fmt.Println("Commands: /clear (clear history), /help (show help)")
@@ -196,7 +208,7 @@ func runInteractiveMode(ctx context.Context, provider providers.Provider, sess *
 		}
 
 		// Send message and get response
-		err := sendSingleMessage(ctx, provider, sess, sessionMgr, registry, cfg, input)
+		err := sendSingleMessage(ctx, provider, sess, sessionMgr, registry, cfg, input, skillsSummary)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -213,14 +225,22 @@ func runInteractiveMode(ctx context.Context, provider providers.Provider, sess *
 	return nil
 }
 
-func buildChatMessages(sess *session.Session) []providers.ChatMessage {
+func buildChatMessages(sess *session.Session, skillsSummary string) []providers.ChatMessage {
 	messages := sess.GetMessages()
 	chatMessages := make([]providers.ChatMessage, 0, len(messages)+1)
+
+	// Build system message with optional skills summary
+	systemContent := "You are uBot, a helpful AI assistant. You can use tools to help accomplish tasks. Be concise and helpful."
+
+	// Append skills summary if available
+	if skillsSummary != "" {
+		systemContent += "\n\n" + skillsSummary
+	}
 
 	// Add system message
 	chatMessages = append(chatMessages, providers.ChatMessage{
 		Role:    "system",
-		Content: "You are uBot, a helpful AI assistant. You can use tools to help accomplish tasks. Be concise and helpful.",
+		Content: systemContent,
 	})
 
 	// Convert session messages to chat messages
@@ -274,5 +294,7 @@ func printHelp() {
 	fmt.Println("  - exec: Execute shell commands")
 	fmt.Println("  - web_search: Search the web (if configured)")
 	fmt.Println("  - web_fetch: Fetch content from URLs")
+	fmt.Println("  - list_skills: List available skills")
+	fmt.Println("  - read_skill: Load a specific skill")
 	fmt.Println()
 }

@@ -135,14 +135,38 @@ func RunSetup() (*config.Config, error) {
 		return nil, fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Println(successStyle.Render("\nConfiguration saved successfully!"))
+	fmt.Println(successStyle.Render("\n✓ Configuration saved successfully!"))
 	fmt.Println(subtitleStyle.Render("Config file: " + config.GetConfigPath()))
+	fmt.Println()
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true).Render("  Shipped to you by Borkiss"))
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("  https://github.com/lubluniky"))
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+	fmt.Println()
 
 	return cfg, nil
 }
 
 // runWelcomeStep displays the welcome message and provider selection.
 func runWelcomeStep(state *SetupState) error {
+	// ASCII banner
+	banner := `
+    __  ______        __
+   / / / / __ )____  / /_
+  / / / / __  / __ \/ __/
+ / /_/ / /_/ / /_/ / /_
+ \__,_/_____/\____/\__/
+
+ The World's Most Lightweight
+    Self-Hosted AI Assistant
+`
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Render(banner))
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render("  Shipped to you by Borkiss"))
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render("  https://github.com/lubluniky"))
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+	fmt.Println()
+
 	welcome := boxStyle.Render(
 		titleStyle.Render("Welcome to uBot Setup") + "\n\n" +
 			"This wizard will help you configure uBot.\n" +

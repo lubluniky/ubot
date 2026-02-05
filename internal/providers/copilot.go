@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -21,9 +22,12 @@ const (
 
 // CopilotProvider implements the Provider interface for GitHub Copilot.
 type CopilotProvider struct {
-	accessToken string
-	model       string
-	client      *http.Client
+	oauthToken   string // OAuth token from device flow (gho_xxx)
+	copilotToken string // Copilot API token (refreshed periodically)
+	tokenExpiry  time.Time
+	model        string
+	client       *http.Client
+	mu           sync.Mutex
 }
 
 // copilotRequest represents the request body for Copilot chat completions.
@@ -81,18 +85,84 @@ type copilotResponse struct {
 }
 
 // NewCopilotProvider creates a new GitHub Copilot provider.
-func NewCopilotProvider(accessToken, model string) *CopilotProvider {
+// The accessToken should be the OAuth token from device flow (gho_xxx).
+func NewCopilotProvider(oauthToken, model string) *CopilotProvider {
 	if model == "" {
 		model = CopilotDefaultModel
 	}
 
 	return &CopilotProvider{
-		accessToken: accessToken,
-		model:       model,
+		oauthToken: oauthToken,
+		model:      model,
 		client: &http.Client{
 			Timeout: 120 * time.Second,
 		},
 	}
+}
+
+// ensureValidToken ensures we have a valid Copilot token.
+// The OAuth token is exchanged for a short-lived Copilot token.
+func (p *CopilotProvider) ensureValidToken(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Check if current token is still valid (with 1 minute buffer)
+	if p.copilotToken != "" && time.Now().Add(time.Minute).Before(p.tokenExpiry) {
+		return nil
+	}
+
+	// Exchange OAuth token for Copilot token
+	token, expiresAt, err := p.exchangeToken(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get copilot token: %w", err)
+	}
+
+	p.copilotToken = token
+	p.tokenExpiry = expiresAt
+	return nil
+}
+
+// exchangeToken exchanges the OAuth token for a Copilot API token.
+func (p *CopilotProvider) exchangeToken(ctx context.Context) (string, time.Time, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://api.github.com/copilot_internal/v2/token", nil)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("token %s", p.oauthToken))
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "uBot/1.0")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", time.Time{}, fmt.Errorf("token exchange failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp struct {
+		Token     string `json:"token"`
+		ExpiresAt int64  `json:"expires_at"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return "", time.Time{}, err
+	}
+
+	if tokenResp.Token == "" {
+		return "", time.Time{}, fmt.Errorf("received empty copilot token")
+	}
+
+	expiresAt := time.Unix(tokenResp.ExpiresAt, 0)
+	return tokenResp.Token, expiresAt, nil
 }
 
 // Name returns the provider's name.
@@ -107,6 +177,11 @@ func (p *CopilotProvider) DefaultModel() string {
 
 // Chat sends a chat completion request to the GitHub Copilot API.
 func (p *CopilotProvider) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+	// Ensure we have a valid Copilot token
+	if err := p.ensureValidToken(ctx); err != nil {
+		return nil, err
+	}
+
 	// Convert messages to Copilot format
 	messages := make([]copilotMessage, len(req.Messages))
 	for i, msg := range req.Messages {
@@ -179,7 +254,10 @@ func (p *CopilotProvider) Chat(ctx context.Context, req ChatRequest) (*ChatRespo
 
 	// Set required headers for Copilot API
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", p.accessToken))
+	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", p.copilotToken))
+	httpReq.Header.Set("Editor-Version", "vscode/1.85.0")
+	httpReq.Header.Set("Editor-Plugin-Version", "copilot-chat/0.12.0")
+	httpReq.Header.Set("User-Agent", "GitHubCopilotChat/0.12.0")
 	httpReq.Header.Set("Copilot-Integration-Id", CopilotIntegrationID)
 
 	// Send request

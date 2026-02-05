@@ -12,6 +12,7 @@ type Config struct {
 	Providers ProvidersConfig `json:"providers"`
 	Gateway   GatewayConfig   `json:"gateway"`
 	Tools     ToolsConfig     `json:"tools"`
+	MCP       MCPConfig       `json:"mcp"`
 }
 
 // AgentsConfig holds agent-related configuration with defaults.
@@ -101,6 +102,21 @@ type ExecToolConfig struct {
 	RestrictToWorkspace bool `json:"restrictToWorkspace"`
 }
 
+// MCPConfig holds Model Context Protocol server configurations.
+type MCPConfig struct {
+	Servers []MCPServerConfig `json:"servers"`
+}
+
+// MCPServerConfig represents an MCP server configuration.
+type MCPServerConfig struct {
+	Name      string            `json:"name"`
+	Command   string            `json:"command"`   // For stdio: command to run
+	Args      []string          `json:"args"`      // Command arguments
+	URL       string            `json:"url"`       // For HTTP: server URL
+	Transport string            `json:"transport"` // "stdio" or "http"
+	Env       map[string]string `json:"env"`       // Environment variables
+}
+
 // DefaultConfig returns a new Config with sensible default values.
 func DefaultConfig() *Config {
 	return &Config{
@@ -171,6 +187,9 @@ func DefaultConfig() *Config {
 				Timeout:             30,
 				RestrictToWorkspace: true,
 			},
+		},
+		MCP: MCPConfig{
+			Servers: []MCPServerConfig{},
 		},
 	}
 }
