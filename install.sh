@@ -317,12 +317,13 @@ setup_config() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo "  1) OpenRouter (recommended - access to Claude, GPT-4, Llama)"
-    echo "  2) OpenAI (GPT-4)"
-    echo "  3) Anthropic (Claude)"
-    echo "  4) Ollama (local models, free)"
-    echo "  5) Skip for now"
+    echo "  2) GitHub Copilot (free with GitHub account)"
+    echo "  3) OpenAI (GPT-4)"
+    echo "  4) Anthropic (Claude)"
+    echo "  5) Ollama (local models, free)"
+    echo "  6) Skip for now"
     echo ""
-    read -p "  Select provider [1-5]: " provider_choice < /dev/tty
+    read -p "  Select provider [1-6]: " provider_choice < /dev/tty
 
     case $provider_choice in
         1)
@@ -334,21 +335,29 @@ setup_config() {
             ;;
         2)
             echo ""
+            echo -e "  GitHub Copilot requires device authentication."
+            echo -e "  After installation, run: ${CYAN}ubot setup${NC} to authenticate."
+            PROVIDER_CONFIG='"copilot": { "enabled": true, "accessToken": "", "model": "gpt-4o" }'
+            MODEL="gpt-4o"
+            NEED_COPILOT_AUTH=1
+            ;;
+        3)
+            echo ""
             echo -e "  Get your API key at: ${BLUE}https://platform.openai.com/api-keys${NC}"
             read -p "  Enter OpenAI API key: " api_key < /dev/tty
             PROVIDER_CONFIG='"openai": { "apiKey": "'"$api_key"'" }'
             MODEL="gpt-4o"
             ;;
-        3)
+        4)
             echo ""
             echo -e "  Get your API key at: ${BLUE}https://console.anthropic.com${NC}"
             read -p "  Enter Anthropic API key: " api_key < /dev/tty
             PROVIDER_CONFIG='"anthropic": { "apiKey": "'"$api_key"'" }'
             MODEL="claude-sonnet-4-20250514"
             ;;
-        4)
+        5)
             info "Make sure Ollama is running: ollama serve"
-            PROVIDER_CONFIG='"ollama": { "apiBase": "http://host.docker.internal:11434/v1" }'
+            PROVIDER_CONFIG='"vllm": { "apiBase": "http://host.docker.internal:11434/v1" }'
             MODEL="llama3.2"
             ;;
         *)
@@ -586,8 +595,17 @@ print_complete() {
     echo -e "${GREEN}  Installation Complete!${NC}"
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
+
+    # Show Copilot auth reminder if needed
+    if [ "${NEED_COPILOT_AUTH:-0}" = "1" ]; then
+        echo -e "  ${YELLOW}⚠ GitHub Copilot requires authentication!${NC}"
+        echo -e "  Run: ${CYAN}ubot setup${NC} to complete device auth flow"
+        echo ""
+    fi
+
     echo -e "  ${BOLD}Quick Start:${NC}"
     echo ""
+    echo -e "    ${CYAN}ubot setup${NC}     - Run setup wizard"
     echo -e "    ${CYAN}ubot start${NC}     - Start the gateway"
     echo -e "    ${CYAN}ubot chat${NC}      - Interactive chat"
     echo -e "    ${CYAN}ubot status${NC}    - Check configuration"
