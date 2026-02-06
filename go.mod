@@ -10,7 +10,6 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
-	github.com/sashabaranov/go-openai v1.38.1
 	github.com/spf13/cobra v1.10.2
 )
 

@@ -79,10 +79,20 @@ type GatewayConfig struct {
 	Port int    `json:"port"`
 }
 
+// VoiceConfig holds voice transcription configuration.
+type VoiceConfig struct {
+	// Backend selects the transcription service: "groq" or "openai".
+	// If empty, defaults to "groq" when a Groq API key is available.
+	Backend string `json:"backend,omitempty"`
+	// Model overrides the default model for the chosen backend.
+	Model string `json:"model,omitempty"`
+}
+
 // ToolsConfig holds tool-related configurations.
 type ToolsConfig struct {
-	Web  WebToolsConfig `json:"web"`
-	Exec ExecToolConfig `json:"exec"`
+	Web   WebToolsConfig `json:"web"`
+	Exec  ExecToolConfig `json:"exec"`
+	Voice VoiceConfig    `json:"voice"`
 }
 
 // WebToolsConfig represents web-related tools configuration.

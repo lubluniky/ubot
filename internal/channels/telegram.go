@@ -1,31 +1,28 @@
 package channels
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
-	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/hkuds/ubot/internal/bus"
 	"github.com/hkuds/ubot/internal/config"
+	"github.com/hkuds/ubot/internal/voice"
 )
 
 // TelegramChannel implements the Channel interface for Telegram messaging.
 type TelegramChannel struct {
 	BaseChannel
-	token   string
-	bot     *tgbotapi.BotAPI
-	groqKey string // for voice transcription
+	token       string
+	bot         *tgbotapi.BotAPI
+	transcriber *voice.Transcriber // nil when voice is not configured
 
 	// chatIDs maps string chat IDs to int64 for message sending
 	chatIDs map[string]int64
@@ -36,11 +33,11 @@ type TelegramChannel struct {
 }
 
 // NewTelegramChannel creates a new Telegram channel instance.
-func NewTelegramChannel(cfg config.TelegramConfig, msgBus *bus.MessageBus, groqKey string) *TelegramChannel {
+func NewTelegramChannel(cfg config.TelegramConfig, msgBus *bus.MessageBus, transcriber *voice.Transcriber) *TelegramChannel {
 	return &TelegramChannel{
 		BaseChannel: NewBaseChannel("telegram", msgBus, cfg.AllowFrom),
 		token:       cfg.Token,
-		groqKey:     groqKey,
+		transcriber: transcriber,
 		chatIDs:     make(map[string]int64),
 	}
 }
@@ -180,14 +177,14 @@ func (c *TelegramChannel) handleMessage(msg *tgbotapi.Message) {
 	c.publishInbound(senderID, chatIDStr, content, media, metadata)
 }
 
-// transcribeVoice transcribes a voice message using Groq API.
-func (c *TelegramChannel) transcribeVoice(voice *tgbotapi.Voice) (string, error) {
-	if c.groqKey == "" {
-		return "", fmt.Errorf("Groq API key not configured for voice transcription")
+// transcribeVoice transcribes a voice message using the configured voice transcriber.
+func (c *TelegramChannel) transcribeVoice(v *tgbotapi.Voice) (string, error) {
+	if c.transcriber == nil {
+		return "", fmt.Errorf("voice transcription not configured")
 	}
 
 	// Get the voice file from Telegram
-	fileConfig := tgbotapi.FileConfig{FileID: voice.FileID}
+	fileConfig := tgbotapi.FileConfig{FileID: v.FileID}
 	file, err := c.bot.GetFile(fileConfig)
 	if err != nil {
 		return "", fmt.Errorf("failed to get voice file: %w", err)
@@ -206,65 +203,7 @@ func (c *TelegramChannel) transcribeVoice(voice *tgbotapi.Voice) (string, error)
 		return "", fmt.Errorf("failed to read voice data: %w", err)
 	}
 
-	// Send to Groq for transcription
-	return c.transcribeWithGroq(audioData, "audio.ogg")
-}
-
-// transcribeWithGroq sends audio data to Groq's Whisper API for transcription.
-func (c *TelegramChannel) transcribeWithGroq(audioData []byte, filename string) (string, error) {
-	// Create multipart form
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-
-	// Add the audio file
-	part, err := writer.CreateFormFile("file", filename)
-	if err != nil {
-		return "", fmt.Errorf("failed to create form file: %w", err)
-	}
-	if _, err := part.Write(audioData); err != nil {
-		return "", fmt.Errorf("failed to write audio data: %w", err)
-	}
-
-	// Add the model parameter
-	if err := writer.WriteField("model", "whisper-large-v3"); err != nil {
-		return "", fmt.Errorf("failed to write model field: %w", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("failed to close multipart writer: %w", err)
-	}
-
-	// Create request to Groq
-	req, err := http.NewRequest("POST", "https://api.groq.com/openai/v1/audio/transcriptions", &buf)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.groqKey)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	// Send request
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to send transcription request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("transcription failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse response
-	var result struct {
-		Text string `json:"text"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode transcription response: %w", err)
-	}
-
-	return result.Text, nil
+	return c.transcriber.Transcribe(audioData, "audio.ogg")
 }
 
 // Stop gracefully shuts down the Telegram channel.

@@ -13,11 +13,13 @@ import (
 	"github.com/hkuds/ubot/internal/bus"
 	"github.com/hkuds/ubot/internal/channels"
 	"github.com/hkuds/ubot/internal/config"
+	"github.com/hkuds/ubot/internal/cron"
 	"github.com/hkuds/ubot/internal/mcp"
 	"github.com/hkuds/ubot/internal/providers"
 	"github.com/hkuds/ubot/internal/session"
 	"github.com/hkuds/ubot/internal/skills"
 	"github.com/hkuds/ubot/internal/tools"
+	"github.com/hkuds/ubot/internal/voice"
 	"github.com/spf13/cobra"
 )
 
@@ -82,12 +84,27 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	manageUbotTool := tools.NewManageUbotTool("")
 	registry.Register(manageUbotTool)
 
+	// Register browser tool
+	browserTool := tools.NewBrowserTool()
+	registry.Register(browserTool)
+
+	// Create and start proactive cron scheduler
+	scheduler := cron.NewScheduler(msgBus, provider, cfg.Agents.Defaults.Model)
+	cronTool := tools.NewCronTool(scheduler)
+	registry.Register(cronTool)
+
 	// Wrap registry with security middleware
 	secureReg := tools.NewSecureRegistry(registry)
 
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start proactive cron scheduler
+	if err := scheduler.Start(ctx); err != nil {
+		log.Printf("Warning: failed to start cron scheduler: %v", err)
+	}
+	defer scheduler.Stop()
 
 	// Initialize MCP manager and connect to configured servers
 	mcpManager := mcp.NewManager()
@@ -320,11 +337,11 @@ func sendErrorResponse(msgBus *bus.MessageBus, msg bus.InboundMessage, errorMsg 
 
 // runTelegramChannel starts the Telegram channel connector.
 func runTelegramChannel(ctx context.Context, msgBus *bus.MessageBus, cfg *config.Config) {
-	// Get Groq API key for voice transcription (optional)
-	groqKey := cfg.Providers.Groq.APIKey
+	// Build voice transcriber (nil when not configured)
+	transcriber := buildVoiceTranscriber(cfg)
 
 	// Create the Telegram channel
-	telegramChannel := channels.NewTelegramChannel(cfg.Channels.Telegram, msgBus, groqKey)
+	telegramChannel := channels.NewTelegramChannel(cfg.Channels.Telegram, msgBus, transcriber)
 
 	// Start the channel
 	if err := telegramChannel.Start(ctx); err != nil {
@@ -400,4 +417,44 @@ func registerMCPServers(ctx context.Context, manager *mcp.Manager, cfg *config.C
 	if len(bridgedTools) > 0 {
 		fmt.Printf("MCP tools registered: %d\n", len(bridgedTools))
 	}
+}
+
+// buildVoiceTranscriber creates a voice.Transcriber based on config.
+// Returns nil when no suitable API key is available.
+func buildVoiceTranscriber(cfg *config.Config) *voice.Transcriber {
+	voiceCfg := cfg.Tools.Voice
+
+	backend := voice.Backend(voiceCfg.Backend)
+	var apiKey string
+
+	switch backend {
+	case voice.BackendOpenAI:
+		apiKey = cfg.Providers.OpenAI.APIKey
+	case voice.BackendGroq:
+		apiKey = cfg.Providers.Groq.APIKey
+	default:
+		if cfg.Providers.Groq.APIKey != "" {
+			backend = voice.BackendGroq
+			apiKey = cfg.Providers.Groq.APIKey
+		} else if cfg.Providers.OpenAI.APIKey != "" {
+			backend = voice.BackendOpenAI
+			apiKey = cfg.Providers.OpenAI.APIKey
+		}
+	}
+
+	if apiKey == "" {
+		return nil
+	}
+
+	var opts []voice.Option
+	if voiceCfg.Model != "" {
+		opts = append(opts, voice.WithModel(voiceCfg.Model))
+	}
+
+	t, err := voice.NewTranscriber(backend, apiKey, opts...)
+	if err != nil {
+		log.Printf("Failed to create voice transcriber: %v", err)
+		return nil
+	}
+	return t
 }

@@ -81,6 +81,10 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	manageUbotTool.SetSource("cli")
 	registry.Register(manageUbotTool)
 
+	// Register browser tool
+	browserTool := tools.NewBrowserTool()
+	registry.Register(browserTool)
+
 	// Wrap registry with security middleware
 	secureReg := tools.NewSecureRegistry(registry)
 

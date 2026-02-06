@@ -9,6 +9,7 @@ import (
 
 	"github.com/hkuds/ubot/internal/bus"
 	"github.com/hkuds/ubot/internal/config"
+	"github.com/hkuds/ubot/internal/voice"
 )
 
 // Manager manages the lifecycle of communication channels.
@@ -40,13 +41,13 @@ func (m *Manager) Initialize() error {
 			return fmt.Errorf("telegram channel enabled but token not configured")
 		}
 
-		// Get Groq key for voice transcription
-		groqKey := m.config.Providers.Groq.APIKey
+		// Build voice transcriber if a suitable API key is available
+		transcriber := m.buildTranscriber()
 
 		telegram := NewTelegramChannel(
 			m.config.Channels.Telegram,
 			m.bus,
-			groqKey,
+			transcriber,
 		)
 		m.channels["telegram"] = telegram
 		log.Println("Telegram channel initialized")
@@ -188,4 +189,48 @@ func (m *Manager) ChannelCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.channels)
+}
+
+// buildTranscriber creates a voice Transcriber based on config.
+// Returns nil (no voice support) when no suitable API key is available.
+func (m *Manager) buildTranscriber() *voice.Transcriber {
+	voiceCfg := m.config.Tools.Voice
+
+	// Determine backend and API key
+	backend := voice.Backend(voiceCfg.Backend)
+	var apiKey string
+
+	switch backend {
+	case voice.BackendOpenAI:
+		apiKey = m.config.Providers.OpenAI.APIKey
+	case voice.BackendGroq:
+		apiKey = m.config.Providers.Groq.APIKey
+	default:
+		// Auto-detect: prefer Groq, fall back to OpenAI
+		if m.config.Providers.Groq.APIKey != "" {
+			backend = voice.BackendGroq
+			apiKey = m.config.Providers.Groq.APIKey
+		} else if m.config.Providers.OpenAI.APIKey != "" {
+			backend = voice.BackendOpenAI
+			apiKey = m.config.Providers.OpenAI.APIKey
+		}
+	}
+
+	if apiKey == "" {
+		log.Println("Voice transcription disabled: no API key for backend")
+		return nil
+	}
+
+	var opts []voice.Option
+	if voiceCfg.Model != "" {
+		opts = append(opts, voice.WithModel(voiceCfg.Model))
+	}
+
+	t, err := voice.NewTranscriber(backend, apiKey, opts...)
+	if err != nil {
+		log.Printf("Failed to create voice transcriber: %v", err)
+		return nil
+	}
+	log.Printf("Voice transcription enabled (backend=%s)", backend)
+	return t
 }

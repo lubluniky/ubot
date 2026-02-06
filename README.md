@@ -23,9 +23,12 @@
 - **Self-Hosted** — данные остаются на твоём железе
 - **Multi-Provider** — OpenRouter, GitHub Copilot, Anthropic, OpenAI, Ollama
 - **Multi-Channel** — Telegram, WhatsApp (скоро), CLI
-- **Tool System** — файлы, shell, web search, web fetch
+- **Tool System** — файлы, shell, web search, web fetch, browser automation
+- **Voice Support** — транскрипция голосовых сообщений через Whisper (Groq/OpenAI)
+- **Browser Automation** — headless Chrome через CDP для веб-задач
+- **Proactive Cron** — бот сам инициирует сообщения по расписанию (напоминания, мониторинг)
 - **Security Middleware** — защита от доступа к чувствительным файлам и опасным командам
-- **Skill System** — расширяй возможности через SKILL.md файлы + CLI управление
+- **Skill System** — 9 встроенных скиллов + CLI управление + SKILL.md расширения
 - **Self-Management** — бот может управлять собой (конфиг, рестарт) из CLI
 - **MCP Support** — подключай внешние инструменты через Model Context Protocol
 - **Secure Sandbox** — Docker-based изоляция с gVisor поддержкой
@@ -150,6 +153,57 @@ ubot skills info <name>       # Информация о скилле
 
 Бот автоматически найдёт и предложит использовать скиллы.
 
+**Встроенные скиллы:** code-review, web-research, data-analysis, writing-assistant, task-management, feature-spec, research-synthesis, sysadmin, meeting-notes.
+
+## Voice (Whisper)
+
+Голосовые сообщения в Telegram автоматически транскрибируются через Whisper API:
+
+- **Groq** (по умолчанию, если есть ключ) — `whisper-large-v3`
+- **OpenAI** — `whisper-1`
+
+Конфигурация в `config.json`:
+```json
+{
+  "tools": {
+    "voice": {
+      "backend": "groq",
+      "model": "whisper-large-v3"
+    }
+  }
+}
+```
+
+Транскрибированный текст обрабатывается как обычное сообщение.
+
+## Browser Automation
+
+Бот может управлять headless Chrome для веб-задач:
+
+```
+"Зайди на example.com и скажи что на странице"
+"Найди на сайте кнопку Login и нажми"
+"Сделай скриншот страницы"
+```
+
+Доступные действия: `browse_page`, `click_element`, `type_text`, `extract_text`, `screenshot`. Браузер запускается лениво при первом вызове и закрывается после 5 минут бездействия.
+
+## Proactive Cron
+
+Бот может сам инициировать сообщения по расписанию:
+
+```
+"Напомни мне пить воду каждый час"
+"Каждый день в 9:00 присылай сводку погоды"
+```
+
+LLM управляет планировщиком через инструмент `cron`:
+- `add` — добавить задачу (cron expression или `@every 5m`)
+- `remove` — удалить задачу
+- `list` — показать активные задачи
+
+Задачи сохраняются в `~/.ubot/cron_jobs.json` и переживают перезапуск.
+
 ## MCP (Model Context Protocol)
 
 Подключай внешние инструменты через MCP:
@@ -212,13 +266,15 @@ ubot/
 │   ├── bus/            # Message bus
 │   ├── channels/       # Telegram, WhatsApp
 │   ├── config/         # Configuration
+│   ├── cron/           # Proactive cron scheduler
 │   ├── mcp/            # MCP client & manager
 │   ├── providers/      # LLM providers
 │   ├── sandbox/        # Docker sandboxing
-│   ├── session/        # Conversation sessions (+ Source field)
+│   ├── session/        # Conversation sessions
 │   ├── skills/         # Skill loader, parser & manager
-│   ├── tools/          # Built-in tools + security.go + manage.go
-│   └── tui/            # Terminal UI
+│   ├── tools/          # Built-in tools (security, browser, cron, manage)
+│   ├── tui/            # Terminal UI
+│   └── voice/          # Whisper transcription
 ├── skills/             # Bundled skills
 ├── install.sh          # One-line installer
 ├── Dockerfile

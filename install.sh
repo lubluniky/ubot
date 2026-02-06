@@ -293,131 +293,14 @@ build_image() {
     success "Docker image built: ubot:$VERSION"
 }
 
-# Create configuration
-setup_config() {
-    step "Setting up configuration..."
+# Create directory structure
+setup_dirs() {
+    step "Setting up directories..."
 
-    CONFIG_FILE="$INSTALL_DIR/config.json"
     WORKSPACE_DIR="$INSTALL_DIR/workspace"
-
     mkdir -p "$WORKSPACE_DIR/memory"
 
-    if [ -f "$CONFIG_FILE" ]; then
-        info "Configuration already exists at $CONFIG_FILE"
-        read -p "Do you want to reconfigure? [y/N] " -n 1 -r < /dev/tty
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            return 0
-        fi
-    fi
-
-    echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}  Provider Setup${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo "  1) OpenRouter (recommended - access to Claude, GPT-4, Llama)"
-    echo "  2) GitHub Copilot (free with GitHub account)"
-    echo "  3) OpenAI (GPT-4)"
-    echo "  4) Anthropic (Claude)"
-    echo "  5) Ollama (local models, free)"
-    echo "  6) Skip for now"
-    echo ""
-    read -p "  Select provider [1-6]: " provider_choice < /dev/tty
-
-    case $provider_choice in
-        1)
-            echo ""
-            echo -e "  Get your API key at: ${BLUE}https://openrouter.ai/keys${NC}"
-            read -p "  Enter OpenRouter API key: " api_key < /dev/tty
-            PROVIDER_CONFIG='"openrouter": { "apiKey": "'"$api_key"'" }'
-            MODEL="anthropic/claude-sonnet-4-20250514"
-            ;;
-        2)
-            echo ""
-            echo -e "  GitHub Copilot requires device authentication."
-            echo -e "  After installation, run: ${CYAN}ubot setup${NC} to authenticate."
-            PROVIDER_CONFIG='"copilot": { "enabled": true, "accessToken": "", "model": "gpt-4o" }'
-            MODEL="gpt-4o"
-            NEED_COPILOT_AUTH=1
-            ;;
-        3)
-            echo ""
-            echo -e "  Get your API key at: ${BLUE}https://platform.openai.com/api-keys${NC}"
-            read -p "  Enter OpenAI API key: " api_key < /dev/tty
-            PROVIDER_CONFIG='"openai": { "apiKey": "'"$api_key"'" }'
-            MODEL="gpt-4o"
-            ;;
-        4)
-            echo ""
-            echo -e "  Get your API key at: ${BLUE}https://console.anthropic.com${NC}"
-            read -p "  Enter Anthropic API key: " api_key < /dev/tty
-            PROVIDER_CONFIG='"anthropic": { "apiKey": "'"$api_key"'" }'
-            MODEL="claude-sonnet-4-20250514"
-            ;;
-        5)
-            info "Make sure Ollama is running: ollama serve"
-            PROVIDER_CONFIG='"vllm": { "apiBase": "http://host.docker.internal:11434/v1" }'
-            MODEL="llama3.2"
-            ;;
-        *)
-            warn "Skipping provider setup. Edit $CONFIG_FILE later."
-            PROVIDER_CONFIG='"openrouter": { "apiKey": "" }'
-            MODEL="anthropic/claude-sonnet-4-20250514"
-            ;;
-    esac
-
-    # Telegram setup
-    echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}  Telegram Setup (optional)${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    read -p "  Setup Telegram bot? [y/N] " -n 1 -r < /dev/tty
-    echo
-
-    TELEGRAM_ENABLED="false"
-    TELEGRAM_TOKEN=""
-    TELEGRAM_ALLOW=""
-
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "  Create a bot via ${BLUE}@BotFather${NC} on Telegram"
-        read -p "  Enter bot token: " TELEGRAM_TOKEN < /dev/tty
-        read -p "  Enter your Telegram user ID (from @userinfobot): " TELEGRAM_ALLOW < /dev/tty
-        TELEGRAM_ENABLED="true"
-    fi
-
-    # Write config
-    cat > "$CONFIG_FILE" << EOF
-{
-  "agents": {
-    "defaults": {
-      "model": "$MODEL",
-      "maxTokens": 4096,
-      "temperature": 0.7,
-      "maxToolIterations": 10
-    }
-  },
-  "providers": {
-    $PROVIDER_CONFIG
-  },
-  "channels": {
-    "telegram": {
-      "enabled": $TELEGRAM_ENABLED,
-      "token": "$TELEGRAM_TOKEN",
-      "allowFrom": ["$TELEGRAM_ALLOW"]
-    }
-  },
-  "tools": {
-    "exec": {
-      "timeout": 30,
-      "restrictToWorkspace": true
-    }
-  }
-}
-EOF
-
-    success "Configuration saved to $CONFIG_FILE"
+    success "Directory structure ready at $INSTALL_DIR"
 }
 
 # Create systemd service (Linux only)
@@ -662,37 +545,39 @@ add_to_path() {
     export PATH="$HOME/.local/bin:$PATH"
 }
 
-# Print completion message
+# Print completion message and prompt for setup
 print_complete() {
     echo ""
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${GREEN}  Installation Complete!${NC}"
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-
-    # Show Copilot auth reminder if needed
-    if [ "${NEED_COPILOT_AUTH:-0}" = "1" ]; then
-        echo -e "  ${YELLOW}⚠ GitHub Copilot requires authentication!${NC}"
-        echo -e "  Run: ${CYAN}ubot setup${NC} to complete device auth flow"
-        echo ""
-    fi
-
-    echo -e "  ${BOLD}Quick Start:${NC}"
+    echo -e "  ${BOLD}Next step:${NC} Run ${CYAN}ubot setup${NC} to configure your assistant."
     echo ""
-    echo -e "    ${CYAN}ubot setup${NC}     - Run setup wizard"
+    echo -e "  ${BOLD}Other commands:${NC}"
+    echo ""
     echo -e "    ${CYAN}ubot start${NC}     - Start the gateway"
     echo -e "    ${CYAN}ubot chat${NC}      - Interactive chat"
     echo -e "    ${CYAN}ubot status${NC}    - Check configuration"
-    echo ""
-    echo -e "  ${BOLD}Configuration:${NC} ~/.ubot/config.json"
     echo ""
     echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${MAGENTA}  Shipped to you by ${BOLD}Borkiss${NC}"
     echo -e "${MAGENTA}  https://github.com/lubluniky${NC}"
     echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -e "  ${CYAN}Restarting shell to apply PATH...${NC}"
+
+    # Offer to run setup now
+    echo -e "  ${YELLOW}Would you like to run setup now?${NC}"
+    read -p "  Run 'ubot setup'? [Y/n] " -n 1 -r < /dev/tty
     echo ""
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        echo ""
+        exec ubot setup
+    else
+        echo ""
+        echo -e "  ${CYAN}Restarting shell to apply PATH...${NC}"
+        echo ""
+    fi
 }
 
 # Select installation mode
@@ -903,14 +788,14 @@ main() {
         install_docker
         setup_repository
         build_image
-        setup_config
+        setup_dirs
         create_service
         create_scripts
     else
         install_go
         setup_repository
         build_native
-        setup_config
+        setup_dirs
         create_native_scripts
     fi
 
