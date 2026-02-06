@@ -132,6 +132,10 @@ func runGateway(cmd *cobra.Command, args []string) error {
 
 	// Start channel connectors
 	if cfg.Channels.Telegram.Enabled {
+		if len(cfg.Channels.Telegram.AllowFrom) == 0 {
+			fmt.Println("WARNING: Telegram channel enabled but AllowFrom is empty — all messages will be rejected.")
+			fmt.Println("Add your Telegram user ID to 'channels.telegram.allow_from' in config to allow access.")
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

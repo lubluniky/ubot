@@ -75,7 +75,7 @@ func (c *Client) connectStdio(ctx context.Context) error {
 
 	// Set a minimal environment instead of inheriting the full parent environment
 	var env []string
-	for _, key := range []string{"PATH", "HOME", "LANG", "USER"} {
+	for _, key := range []string{"PATH", "HOME", "LANG", "USER", "TERM", "SHELL", "TMPDIR", "XDG_RUNTIME_DIR", "NODE_PATH"} {
 		if val, ok := os.LookupEnv(key); ok {
 			env = append(env, fmt.Sprintf("%s=%s", key, val))
 		}

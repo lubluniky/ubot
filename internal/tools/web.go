@@ -577,7 +577,9 @@ func isInternalURL(rawURL string) bool {
 
 	ips, err := net.LookupIP(hostname)
 	if err != nil {
-		return true
+		// If DNS resolution fails, allow the request — it will fail at HTTP level
+		// with a clearer error. Blocking here would break fetch in no-DNS environments.
+		return false
 	}
 
 	cloudMetadataIP := net.ParseIP("169.254.169.254")
