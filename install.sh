@@ -584,14 +584,14 @@ print_complete() {
 select_install_mode() {
     step "Select installation mode..."
     echo ""
-    echo "  1) Docker (recommended) - Isolated, secure, easy updates"
-    echo "  2) Native - Direct Go binary, no Docker needed"
+    echo "  1) Native (recommended) - Fast Go binary, minimal footprint"
+    echo "  2) Docker - Isolated container, heavier but sandboxed"
     echo ""
     read -p "  Select mode [1-2] (default: 1): " mode_choice < /dev/tty
 
     case "${mode_choice:-1}" in
-        2) INSTALL_MODE="native" ;;
-        *) INSTALL_MODE="docker" ;;
+        2) INSTALL_MODE="docker" ;;
+        *) INSTALL_MODE="native" ;;
     esac
 
     success "Installation mode: $INSTALL_MODE"
