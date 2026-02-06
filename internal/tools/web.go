@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -248,6 +249,11 @@ func (t *WebFetchTool) Execute(ctx context.Context, params map[string]interface{
 
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return "", errors.New("web_fetch: only http and https URLs are supported")
+	}
+
+	// SSRF protection: block requests to internal/private network addresses
+	if isInternalURL(rawURL) {
+		return "", errors.New("web_fetch: access to internal/private network addresses is blocked")
 	}
 
 	extractMode := GetStringParamOr(params, "extract_mode", "markdown")
@@ -553,4 +559,37 @@ func truncateText(text string, maxChars int) string {
 		return truncated[:lastSpace] + "..."
 	}
 	return truncated + "..."
+}
+
+// isInternalURL checks whether a URL targets an internal or private network address.
+// It returns true if the resolved IP is loopback, private, link-local, or a known
+// cloud metadata address (169.254.169.254).
+func isInternalURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return true
+	}
+
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return true
+	}
+
+	ips, err := net.LookupIP(hostname)
+	if err != nil {
+		return true
+	}
+
+	cloudMetadataIP := net.ParseIP("169.254.169.254")
+
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return true
+		}
+		if ip.Equal(cloudMetadataIP) {
+			return true
+		}
+	}
+
+	return false
 }

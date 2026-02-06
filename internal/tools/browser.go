@@ -366,6 +366,11 @@ func (t *BrowserTool) browsePage(ctx context.Context, params map[string]interfac
 		urlStr = "https://" + urlStr
 	}
 
+	// SSRF protection: block requests to internal/private network addresses
+	if isInternalURL(urlStr) {
+		return "", fmt.Errorf("browser_use browse_page: access to internal/private network addresses is blocked")
+	}
+
 	bi, err := t.ensureBrowser()
 	if err != nil {
 		return "", err

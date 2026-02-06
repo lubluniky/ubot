@@ -56,7 +56,7 @@ func (m *MemoryStore) AppendToMemory(content string) error {
 	}
 
 	// Open file in append mode, create if not exists
-	f, err := os.OpenFile(memoryPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(memoryPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to open MEMORY.md: %w", err)
 	}
@@ -95,7 +95,7 @@ func (m *MemoryStore) AppendToDailyNotes(content string) error {
 	}
 
 	// Open file in append mode, create if not exists
-	f, err := os.OpenFile(notesPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(notesPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to open daily notes: %w", err)
 	}

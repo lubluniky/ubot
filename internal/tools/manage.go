@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 
@@ -108,16 +107,64 @@ func (t *ManageUbotTool) Execute(ctx context.Context, params map[string]interfac
 	}
 }
 
-// showConfig reads and returns the current configuration.
+// showConfig reads and returns the current configuration with sensitive fields redacted.
 func (t *ManageUbotTool) showConfig() (string, error) {
-	data, err := os.ReadFile(t.configPath)
+	cfg, err := config.LoadConfig(t.configPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return "No config file found. Using default configuration.", nil
-		}
-		return "", fmt.Errorf("manage_ubot: failed to read config: %w", err)
+		return "", fmt.Errorf("manage_ubot: failed to load config: %w", err)
 	}
-	return string(data), nil
+
+	// Convert config to a generic map for redaction
+	cfgData, err := json.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("manage_ubot: failed to marshal config: %w", err)
+	}
+
+	var cfgMap map[string]interface{}
+	if err := json.Unmarshal(cfgData, &cfgMap); err != nil {
+		return "", fmt.Errorf("manage_ubot: failed to unmarshal config: %w", err)
+	}
+
+	// Redact sensitive fields
+	redactSensitiveFields(cfgMap)
+
+	// Return pretty-printed JSON
+	redacted, err := json.MarshalIndent(cfgMap, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("manage_ubot: failed to marshal redacted config: %w", err)
+	}
+	return string(redacted), nil
+}
+
+// redactSensitiveFields recursively walks a map and redacts values for keys
+// that look like API keys, tokens, secrets, or passwords.
+func redactSensitiveFields(m map[string]interface{}) {
+	for k, v := range m {
+		keyLower := strings.ToLower(k)
+		isSensitive := strings.Contains(keyLower, "key") ||
+			strings.Contains(keyLower, "token") ||
+			strings.Contains(keyLower, "secret") ||
+			strings.Contains(keyLower, "password")
+
+		switch val := v.(type) {
+		case string:
+			if isSensitive && val != "" {
+				if len(val) > 4 {
+					m[k] = "****" + val[len(val)-4:]
+				} else {
+					m[k] = "****"
+				}
+			}
+		case map[string]interface{}:
+			redactSensitiveFields(val)
+		case []interface{}:
+			for _, item := range val {
+				if nested, ok := item.(map[string]interface{}); ok {
+					redactSensitiveFields(nested)
+				}
+			}
+		}
+	}
 }
 
 // updateConfig updates a config key with a new value.
