@@ -5,7 +5,7 @@ import "time"
 
 // Default configuration values.
 const (
-	DefaultImage        = "alpine:latest"
+	DefaultImage        = "alpine:3.21"
 	DefaultMemoryMB     = 128
 	DefaultCPUPercent   = 0.5
 	DefaultMaxProcesses = 50
@@ -16,7 +16,7 @@ const (
 // SandboxConfig holds configuration for the sandbox environment.
 type SandboxConfig struct {
 	// Image is the container image to use.
-	// Default: alpine:latest
+	// Default: alpine:3.21
 	Image string
 
 	// MemoryMB is the memory limit in megabytes.

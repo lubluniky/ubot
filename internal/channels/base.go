@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -67,13 +68,14 @@ func (c *BaseChannel) setRunning(running bool) {
 
 // IsAllowed checks if a sender is permitted to use this channel.
 // Returns true if:
-// - The allowList is empty (allow everyone)
 // - The senderID matches any item in the allowList
 // - For compound IDs like "123456|username", checks both the numeric ID and username
+// Returns false if the allowList is empty (deny all by default).
 func (c *BaseChannel) IsAllowed(senderID string) bool {
-	// Empty allowList means allow everyone
+	// Empty allowList means deny everyone — no users configured
 	if len(c.allowList) == 0 {
-		return true
+		log.Printf("[security] channel=%s action=denied reason=no_allowed_users sender=%s", c.name, senderID)
+		return false
 	}
 
 	// Check if senderID directly matches any allowed ID

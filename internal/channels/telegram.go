@@ -194,7 +194,7 @@ func (c *TelegramChannel) transcribeVoice(v *tgbotapi.Voice) (string, error) {
 	fileURL := file.Link(c.token)
 	resp, err := http.Get(fileURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to download voice file: %w", err)
+		return "", fmt.Errorf("failed to download voice file from Telegram")
 	}
 	defer resp.Body.Close()
 

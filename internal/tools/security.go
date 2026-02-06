@@ -39,12 +39,16 @@ var sensitiveFiles = []string{
 	".netrc",
 	".docker/config.json",
 	".kube/config",
+	".ubot/config.json",
 }
 
 // sensitiveAbsolutePaths are absolute paths that should never be accessed.
 var sensitiveAbsolutePaths = []string{
 	"/etc/shadow",
 	"/etc/sudoers",
+	"/proc/self/environ",
+	"/proc/self/cmdline",
+	"/proc/self/maps",
 }
 
 // sensitiveExtensions are file extensions that indicate sensitive content.
@@ -65,6 +69,7 @@ var filesystemTools = map[string]bool{
 	"read_file":  true,
 	"write_file": true,
 	"edit_file":  true,
+	"list_dir":   true,
 }
 
 // SecureRegistry wraps a ToolRegistry and intercepts Execute calls

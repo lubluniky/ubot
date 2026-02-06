@@ -72,7 +72,7 @@ func SaveConfig(cfg *Config, path string) error {
 
 	// Ensure the directory exists
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create config directory %s: %w", dir, err)
 	}
 
@@ -94,7 +94,7 @@ func SaveConfig(cfg *Config, path string) error {
 // Creates the directory with appropriate permissions if it doesn't exist.
 func EnsureConfigDir() error {
 	dir := GetConfigDir()
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create config directory %s: %w", dir, err)
 	}
 	return nil
@@ -127,7 +127,7 @@ func InitConfig() error {
 // EnsureWorkspaceDir ensures the workspace directory exists.
 func EnsureWorkspaceDir(cfg *Config) error {
 	workspace := cfg.WorkspacePath()
-	if err := os.MkdirAll(workspace, 0755); err != nil {
+	if err := os.MkdirAll(workspace, 0700); err != nil {
 		return fmt.Errorf("failed to create workspace directory %s: %w", workspace, err)
 	}
 	return nil

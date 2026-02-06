@@ -73,11 +73,18 @@ func (c *Client) connectStdio(ctx context.Context) error {
 	// Build command
 	c.process = exec.CommandContext(ctx, c.server.Command, c.server.Args...)
 
-	// Set environment variables
-	c.process.Env = os.Environ()
-	for k, v := range c.server.Env {
-		c.process.Env = append(c.process.Env, fmt.Sprintf("%s=%s", k, v))
+	// Set a minimal environment instead of inheriting the full parent environment
+	var env []string
+	for _, key := range []string{"PATH", "HOME", "LANG", "USER", "TERM", "SHELL", "TMPDIR", "XDG_RUNTIME_DIR", "NODE_PATH"} {
+		if val, ok := os.LookupEnv(key); ok {
+			env = append(env, fmt.Sprintf("%s=%s", key, val))
+		}
 	}
+	// Add explicitly configured env vars
+	for k, v := range c.server.Env {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	}
+	c.process.Env = env
 
 	// Set up pipes
 	var err error

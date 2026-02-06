@@ -36,7 +36,7 @@ func NewManager(dataDir string) *Manager {
 	sessionsDir := filepath.Join(dataDir, "sessions")
 
 	// Ensure sessions directory exists
-	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+	if err := os.MkdirAll(sessionsDir, 0700); err != nil {
 		// Log error but continue - operations will fail gracefully
 		fmt.Fprintf(os.Stderr, "warning: failed to create sessions directory: %v\n", err)
 	}
@@ -115,7 +115,7 @@ func (m *Manager) Save(session *Session) error {
 	filePath := m.getFilePath(session.Key)
 
 	// Create file
-	file, err := os.Create(filePath)
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to create session file: %w", err)
 	}
@@ -276,6 +276,13 @@ func (m *Manager) getFilePath(key string) string {
 
 // safeKey converts a session key to a safe filename
 func (m *Manager) safeKey(key string) string {
+	// Remove null bytes
+	key = strings.ReplaceAll(key, "\x00", "")
+	// Remove path traversal components
+	key = strings.ReplaceAll(key, "..", "")
+	// Remove path separators
+	key = strings.ReplaceAll(key, "/", "")
+	key = strings.ReplaceAll(key, "\\", "")
 	// Replace ":" with "_" for filesystem safety
 	return strings.ReplaceAll(key, ":", "_")
 }
