@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/hkuds/ubot/internal/config"
@@ -173,7 +174,17 @@ func (t *ManageUbotTool) updateConfig(params map[string]interface{}) (string, er
 		return "", fmt.Errorf("manage_ubot: failed to save config: %w", err)
 	}
 
-	return fmt.Sprintf("Config updated: %s = %s", key, value), nil
+	// Avoid echoing sensitive values (API keys, tokens, secrets) in the response
+	displayValue := value
+	keyLower := strings.ToLower(key)
+	if strings.Contains(keyLower, "key") || strings.Contains(keyLower, "token") || strings.Contains(keyLower, "secret") || strings.Contains(keyLower, "password") {
+		if len(value) > 4 {
+			displayValue = value[:4] + "****"
+		} else {
+			displayValue = "****"
+		}
+	}
+	return fmt.Sprintf("Config updated: %s = %s", key, displayValue), nil
 }
 
 // restart returns a message indicating restart was requested.

@@ -483,10 +483,16 @@ func runSkillsStep(state *SetupState) error {
 		fmt.Println(successStyle.Render("Skills repository updated!"))
 	}
 
-	// Discover available skills
+	// Discover available skills from remote repo
 	if err := manager.DiscoverAvailable(); err != nil {
 		fmt.Println(warningStyle.Render("Failed to discover skills: " + err.Error()))
 		return nil
+	}
+
+	// Also discover bundled skills from the local repo clone
+	repoSkillsPath := config.GetConfigDir() + "/repo/skills"
+	if err := manager.DiscoverBundled(repoSkillsPath); err != nil {
+		fmt.Println(warningStyle.Render("Failed to discover bundled skills: " + err.Error()))
 	}
 
 	availableSkills := manager.ListAvailable()

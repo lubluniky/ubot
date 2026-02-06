@@ -205,6 +205,61 @@ func (m *Manager) DiscoverAvailable() error {
 	return err
 }
 
+// DiscoverBundled scans a local bundled skills directory and adds them
+// to the available skills map. Skills already discovered from the remote
+// repo are NOT overwritten (remote takes precedence for same-named skills).
+func (m *Manager) DiscoverBundled(bundledPath string) error {
+	if bundledPath == "" {
+		return nil
+	}
+
+	info, err := os.Stat(bundledPath)
+	if err != nil || !info.IsDir() {
+		return nil // path doesn't exist or isn't a directory, skip silently
+	}
+
+	entries, err := os.ReadDir(bundledPath)
+	if err != nil {
+		return fmt.Errorf("failed to read bundled skills dir: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		skillName := entry.Name()
+
+		// Don't overwrite remote skills with same name
+		if _, exists := m.available[skillName]; exists {
+			continue
+		}
+
+		skillFile := filepath.Join(bundledPath, skillName, "SKILL.md")
+		if _, err := os.Stat(skillFile); err != nil {
+			continue
+		}
+
+		skill, err := ParseSkillFile(skillFile)
+		if err != nil {
+			continue
+		}
+
+		m.available[skillName] = &AvailableSkill{
+			Name:        skillName,
+			Title:       skill.Title,
+			Description: skill.Description,
+			Category:    "bundled",
+			Path:        skillFile,
+		}
+	}
+
+	return nil
+}
+
 // ListAvailable returns a sorted list of available skills.
 func (m *Manager) ListAvailable() []*AvailableSkill {
 	m.mu.RLock()

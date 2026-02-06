@@ -396,6 +396,11 @@ case "${1:-help}" in
             -v "$UBOT_DIR:/home/ubot/.ubot" \
             ubot:latest setup
         ;;
+    rootchat)
+        docker run -it --rm \
+            -v "$UBOT_DIR:/home/ubot/.ubot" \
+            ubot:latest rootchat
+        ;;
     config)
         ${EDITOR:-nano} "$UBOT_DIR/config.json"
         ;;
@@ -465,6 +470,7 @@ case "${1:-help}" in
         echo "  chat      Interactive chat mode"
         echo "  chat -m   Send a single message"
         echo "  setup     Run setup wizard"
+        echo "  rootchat  Configure uBot via AI chat"
         echo "  config    Edit configuration"
         echo "  update    Update to latest version"
         echo "  destroy   Remove uBot completely"
@@ -700,6 +706,9 @@ case "\${1:-help}" in
     setup)
         "\$UBOT_BIN" setup
         ;;
+    rootchat)
+        "\$UBOT_BIN" rootchat
+        ;;
     config)
         \${EDITOR:-nano} "\$UBOT_DIR/config.json"
         ;;
@@ -760,6 +769,7 @@ case "\${1:-help}" in
         echo "  chat      Interactive chat mode"
         echo "  chat -m   Send a single message"
         echo "  setup     Run setup wizard"
+        echo "  rootchat  Configure uBot via AI chat"
         echo "  config    Edit configuration"
         echo "  update    Update to latest version"
         echo "  destroy   Remove uBot completely"

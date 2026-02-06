@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hkuds/ubot/internal/config"
+	"github.com/hkuds/ubot/internal/skills"
 )
 
 // Status display styles.
@@ -77,6 +78,12 @@ func ShowStatus(cfg *config.Config) error {
 	sb.WriteString(statusSectionStyle.Render("Tools"))
 	sb.WriteString("\n")
 	sb.WriteString(renderToolsStatus(cfg))
+	sb.WriteString("\n")
+
+	// Skills section
+	sb.WriteString(statusSectionStyle.Render("Skills"))
+	sb.WriteString("\n")
+	sb.WriteString(renderSkillsStatus(cfg))
 	sb.WriteString("\n")
 
 	// Workspace section
@@ -176,6 +183,33 @@ func renderToolsStatus(cfg *config.Config) string {
 		sb.WriteString(renderStatusRow("  Restricted", statusValueStyle.Render("workspace only")))
 	} else {
 		sb.WriteString(renderStatusRow("  Restricted", statusWarningStyle.Render("no restrictions")))
+	}
+
+	return sb.String()
+}
+
+// renderSkillsStatus renders the installed skills status.
+func renderSkillsStatus(cfg *config.Config) string {
+	var sb strings.Builder
+
+	dataDir := cfg.WorkspacePath()
+	loader := skills.NewLoader(dataDir)
+	bundledPath := config.GetConfigDir() + "/repo/skills"
+	loader.SetBundledPath(bundledPath)
+	if err := loader.Discover(); err != nil {
+		sb.WriteString(renderStatusRow("Status", statusWarningStyle.Render("error discovering skills")))
+		return sb.String()
+	}
+
+	names := loader.List()
+	if len(names) == 0 {
+		sb.WriteString(renderStatusRow("Installed", statusDisabledStyle.Render("none")))
+		return sb.String()
+	}
+
+	sb.WriteString(renderStatusRow("Installed", statusEnabledStyle.Render(fmt.Sprintf("%d skill(s)", len(names)))))
+	for _, name := range names {
+		sb.WriteString(renderStatusRow("", statusValueStyle.Render("- "+name)))
 	}
 
 	return sb.String()

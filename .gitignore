@@ -11,15 +11,18 @@ ubot
 
 # Output of the go coverage tool
 *.out
+coverage.out
 
 # Go workspace file
 go.work
+go.work.sum
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
@@ -27,8 +30,14 @@ Thumbs.db
 
 # Local config (contains secrets)
 config.json
+.env
+.env.*
 
 # Temporary files
 tmp/
 *.tmp
 *.log
+
+# Build artifacts
+dist/
+knowledge-work-plugins-temp/

@@ -1,3 +1,5 @@
+[🇬🇧 English](#) | [🇷🇺 Русский](README.ru.md)
+
 # uBot
 
 ```
@@ -11,7 +13,7 @@
      Self-Hosted AI Assistant
 ```
 
-**uBot** — самый легковесный self-hosted AI ассистент в мире. Полная переписка [nanobot](https://github.com/HKUDS/nanobot) на Go для максимальной производительности и безопасности.
+**uBot** is the world's most lightweight self-hosted AI assistant. A complete rewrite of [nanobot](https://github.com/HKUDS/nanobot) in Go for maximum performance and security.
 
 [![GitHub](https://img.shields.io/badge/GitHub-lubluniky%2Fubot-blue?logo=github)](https://github.com/lubluniky/ubot)
 [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)](https://go.dev)
@@ -19,20 +21,20 @@
 
 ## Features
 
-- **Ultra-Lightweight** — ~12,000 строк Go кода (vs 400k+ у аналогов)
-- **Self-Hosted** — данные остаются на твоём железе
+- **Ultra-Lightweight** — ~12,000 lines of Go code (vs 400k+ in comparable projects)
+- **Self-Hosted** — your data stays on your own hardware
 - **Multi-Provider** — OpenRouter, GitHub Copilot, Anthropic, OpenAI, Ollama
-- **Multi-Channel** — Telegram, WhatsApp (скоро), CLI
-- **Tool System** — файлы, shell, web search, web fetch, browser automation
-- **Voice Support** — транскрипция голосовых сообщений через Whisper (Groq/OpenAI)
-- **Browser Automation** — headless Chrome через CDP для веб-задач
-- **Proactive Cron** — бот сам инициирует сообщения по расписанию (напоминания, мониторинг)
-- **Security Middleware** — защита от доступа к чувствительным файлам и опасным командам
-- **Skill System** — 9 встроенных скиллов + CLI управление + SKILL.md расширения
-- **Self-Management** — бот может управлять собой (конфиг, рестарт) из CLI
-- **MCP Support** — подключай внешние инструменты через Model Context Protocol
-- **Secure Sandbox** — Docker-based изоляция с gVisor поддержкой
-- **Interactive TUI** — красивый setup wizard
+- **Multi-Channel** — Telegram, WhatsApp (coming soon), CLI
+- **Tool System** — files, shell, web search, web fetch, browser automation
+- **Voice Support** — voice message transcription via Whisper (Groq/OpenAI)
+- **Browser Automation** — headless Chrome via CDP for web tasks
+- **Proactive Cron** — the bot proactively sends messages on a schedule (reminders, monitoring)
+- **Security Middleware** — protection against access to sensitive files and dangerous commands
+- **Skill System** — 9 built-in skills + CLI management + SKILL.md extensions
+- **Self-Management** — the bot can manage itself (config, restart) from CLI
+- **MCP Support** — connect external tools via Model Context Protocol
+- **Secure Sandbox** — Docker-based isolation with gVisor support
+- **Interactive TUI** — interactive setup wizard
 
 ## Quick Start
 
@@ -42,12 +44,12 @@
 curl -fsSL https://raw.githubusercontent.com/lubluniky/ubot/main/install.sh | bash
 ```
 
-Установщик:
-- Проверит OS и зависимости
-- Установит Docker если нужно
-- Соберёт Docker образ
-- Запустит интерактивную настройку
-- Создаст команду `ubot`
+The installer will:
+- Check your OS and dependencies
+- Install Docker if needed
+- Build the Docker image
+- Launch the interactive setup wizard
+- Create the `ubot` command
 
 ### Manual Install
 
@@ -61,28 +63,39 @@ go build -o ubot ./cmd/ubot/
 ## Usage
 
 ```bash
-ubot start       # Запустить gateway (Telegram, etc.)
-ubot stop        # Остановить gateway
-ubot restart     # Перезапустить
-ubot logs        # Показать логи
-ubot status      # Показать конфигурацию
-ubot chat        # Интерактивный чат
-ubot chat -m "Hello!"  # Одно сообщение
-ubot setup       # Мастер настройки
-ubot config      # Редактировать конфиг
-ubot update      # Обновить до последней версии
-ubot destroy     # Полное удаление
+# Gateway (channels)
+ubot start                    # Start the gateway (Telegram, etc.)
+ubot stop                     # Stop the gateway
+ubot restart                  # Restart the gateway
+ubot logs                     # Show gateway logs
+
+# Chat
+ubot chat                     # Interactive chat mode
+ubot chat -m "Hello!"         # Send a single message
+
+# Configuration
+ubot setup                    # Interactive setup wizard
+ubot config                   # Open config file in editor
+ubot status                   # Show current configuration
+ubot version                  # Show version
 
 # Skills Management
-ubot skills list              # Список установленных и доступных скиллов
-ubot skills install <name>    # Установить скилл из репозитория
-ubot skills uninstall <name>  # Удалить скилл
-ubot skills info <name>       # Информация о скилле
+ubot skills list              # List installed and available skills
+ubot skills install <name>    # Install a skill from the repository
+ubot skills uninstall <name>  # Remove an installed skill
+ubot skills info <name>       # Show skill details
+
+# Self-Configuration
+ubot rootchat                 # AI assistant for configuring uBot itself
+
+# Maintenance
+ubot update                   # Update to the latest version
+ubot destroy                  # Complete removal
 ```
 
 ## Configuration
 
-Конфиг: `~/.ubot/config.json`
+Config file: `~/.ubot/config.json`
 
 ```json
 {
@@ -120,49 +133,49 @@ ubot skills info <name>       # Информация о скилле
 
 ## Providers
 
-| Provider | Описание | API Key |
-|----------|----------|---------|
-| **OpenRouter** | Доступ к Claude, GPT-4, Llama | [openrouter.ai/keys](https://openrouter.ai/keys) |
-| **GitHub Copilot** | Бесплатно с подпиской GitHub | Device Flow в setup |
-| **Anthropic** | Claude напрямую | [console.anthropic.com](https://console.anthropic.com) |
-| **OpenAI** | GPT-4 напрямую | [platform.openai.com](https://platform.openai.com) |
-| **Ollama** | Локальные модели | Не нужен |
+| Provider | Description | API Key |
+|----------|-------------|---------|
+| **OpenRouter** | Access to Claude, GPT-4, Llama | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| **GitHub Copilot** | Free with GitHub subscription | Device Flow in setup |
+| **Anthropic** | Claude directly | [console.anthropic.com](https://console.anthropic.com) |
+| **OpenAI** | GPT-4 directly | [platform.openai.com](https://platform.openai.com) |
+| **Ollama** | Local models | Not required |
 
 ## Skills
 
-Скиллы расширяют возможности бота. Создай `~/.ubot/workspace/skills/{name}/SKILL.md`:
+Skills extend the bot's capabilities. Create `~/.ubot/workspace/skills/{name}/SKILL.md`:
 
 ```markdown
 # Code Review
 
-Помогаю ревьюить код на баги и улучшения.
+Helps review code for bugs and improvements.
 
 <!-- always-load -->
 
 ## Capabilities
 
-- Поиск багов
-- Проверка безопасности
-- Предложения по улучшению
+- Bug detection
+- Security checks
+- Improvement suggestions
 
 ## Tools
 
-- `read_file`: читать файлы для анализа
-- `exec`: запускать линтеры
+- `read_file`: read files for analysis
+- `exec`: run linters
 ```
 
-Бот автоматически найдёт и предложит использовать скиллы.
+The bot automatically discovers and suggests using relevant skills.
 
-**Встроенные скиллы:** code-review, web-research, data-analysis, writing-assistant, task-management, feature-spec, research-synthesis, sysadmin, meeting-notes.
+**Built-in skills:** code-review, web-research, data-analysis, writing-assistant, task-management, feature-spec, research-synthesis, sysadmin, meeting-notes.
 
 ## Voice (Whisper)
 
-Голосовые сообщения в Telegram автоматически транскрибируются через Whisper API:
+Voice messages in Telegram are automatically transcribed via the Whisper API:
 
-- **Groq** (по умолчанию, если есть ключ) — `whisper-large-v3`
+- **Groq** (default if key is available) — `whisper-large-v3`
 - **OpenAI** — `whisper-1`
 
-Конфигурация в `config.json`:
+Configuration in `config.json`:
 ```json
 {
   "tools": {
@@ -174,39 +187,39 @@ ubot skills info <name>       # Информация о скилле
 }
 ```
 
-Транскрибированный текст обрабатывается как обычное сообщение.
+Transcribed text is processed as a regular message.
 
 ## Browser Automation
 
-Бот может управлять headless Chrome для веб-задач:
+The bot can control headless Chrome for web tasks:
 
 ```
-"Зайди на example.com и скажи что на странице"
-"Найди на сайте кнопку Login и нажми"
-"Сделай скриншот страницы"
+"Go to example.com and tell me what's on the page"
+"Find the Login button on the site and click it"
+"Take a screenshot of the page"
 ```
 
-Доступные действия: `browse_page`, `click_element`, `type_text`, `extract_text`, `screenshot`. Браузер запускается лениво при первом вызове и закрывается после 5 минут бездействия.
+Available actions: `browse_page`, `click_element`, `type_text`, `extract_text`, `screenshot`. The browser launches lazily on first use and shuts down after 5 minutes of inactivity.
 
 ## Proactive Cron
 
-Бот может сам инициировать сообщения по расписанию:
+The bot can proactively send messages on a schedule:
 
 ```
-"Напомни мне пить воду каждый час"
-"Каждый день в 9:00 присылай сводку погоды"
+"Remind me to drink water every hour"
+"Every day at 9:00 send me a weather summary"
 ```
 
-LLM управляет планировщиком через инструмент `cron`:
-- `add` — добавить задачу (cron expression или `@every 5m`)
-- `remove` — удалить задачу
-- `list` — показать активные задачи
+The LLM manages the scheduler via the `cron` tool:
+- `add` — add a job (cron expression or `@every 5m`)
+- `remove` — remove a job
+- `list` — show active jobs
 
-Задачи сохраняются в `~/.ubot/cron_jobs.json` и переживают перезапуск.
+Jobs are persisted in `~/.ubot/cron_jobs.json` and survive restarts.
 
 ## MCP (Model Context Protocol)
 
-Подключай внешние инструменты через MCP:
+Connect external tools via MCP:
 
 ```json
 {
@@ -228,7 +241,7 @@ LLM управляет планировщиком через инструмен�
 }
 ```
 
-MCP инструменты появятся как `mcp_{server}_{tool}` в списке доступных.
+MCP tools appear as `mcp_{server}_{tool}` in the available tools list.
 
 ## Architecture
 
@@ -302,45 +315,45 @@ docker run -it --rm \
 
 ## Security
 
-uBot использует многоуровневую систему безопасности:
+uBot uses a multi-layered security system:
 
 ### Security Middleware (`internal/tools/security.go`)
 
-Все вызовы инструментов проходят через `SecureRegistry` — обёртку над `ToolRegistry`:
+All tool calls pass through `SecureRegistry` — a wrapper around `ToolRegistry`:
 
-- **Блокировка чувствительных путей** — `~/.ssh/`, `~/.gnupg/`, `~/.aws/`, `~/.kube/`, `*.pem`, `*.key`, `.env`, `/etc/shadow`
-- **Валидация параметров** — `ValidateParams()` проверяет JSON Schema перед каждым вызовом
-- **Guard для exec** — интеграция с `sandbox.GuardCommand()` для блокировки опасных команд
-- **Symlink resolution** — пути разрешаются через `filepath.EvalSymlinks` (обход `/etc` -> `/private/etc` на macOS)
-- **Audit logging** — логирование всех вызовов инструментов с временем и статусом
+- **Sensitive path blocking** — `~/.ssh/`, `~/.gnupg/`, `~/.aws/`, `~/.kube/`, `*.pem`, `*.key`, `.env`, `/etc/shadow`
+- **Parameter validation** — `ValidateParams()` checks JSON Schema before every call
+- **Exec guard** — integration with `sandbox.GuardCommand()` to block dangerous commands
+- **Symlink resolution** — paths are resolved via `filepath.EvalSymlinks` (handles `/etc` -> `/private/etc` on macOS)
+- **Audit logging** — all tool calls are logged with timestamps and status
 
 ### Sandbox
 
-- **Sandboxed Execution** — команды выполняются в изолированных Docker контейнерах
-- **gVisor Support** — опциональная kernel-level изоляция
-- **Command Guards** — блокировка опасных команд (rm -rf, fork bombs, etc.)
-- **Resource Limits** — лимиты CPU, памяти, PID
-- **Non-root Container** — запуск от непривилегированного пользователя
-- **Read-only Filesystem** — защита от модификации
+- **Sandboxed Execution** — commands run in isolated Docker containers
+- **gVisor Support** — optional kernel-level isolation
+- **Command Guards** — blocks dangerous commands (rm -rf, fork bombs, etc.)
+- **Resource Limits** — CPU, memory, and PID limits
+- **Non-root Container** — runs as an unprivileged user
+- **Read-only Filesystem** — prevents modifications
 
 ### Self-Management (CLI Only)
 
-Бот может управлять собой через инструмент `manage_ubot`, но **только из CLI**:
+The bot can manage itself via the `manage_ubot` tool, but **only from CLI**:
 
 ```
-manage_ubot action=show_config     # Показать текущий конфиг
+manage_ubot action=show_config     # Show current config
 manage_ubot action=update_config key=agents.defaults.model value=gpt-4
-manage_ubot action=restart         # Запросить перезапуск
+manage_ubot action=restart         # Request a restart
 ```
 
-При вызове из Telegram/WhatsApp — автоматический отказ "Permission Denied". Контроль через поле `Session.Source`, которое устанавливается автоматически для каждого канала.
+When called from Telegram/WhatsApp, access is automatically denied with "Permission Denied". Access control is enforced via the `Session.Source` field, which is set automatically for each channel.
 
 ## Comparison
 
-| Feature | uBot (Go) | Аналоги (Python) |
-|---------|-----------|------------------|
-| Размер кода | ~12k строк | 400k+ строк |
-| Бинарник | 15MB | 50MB+ с deps |
+| Feature | uBot (Go) | Alternatives (Python) |
+|---------|-----------|----------------------|
+| Codebase | ~12k lines | 400k+ lines |
+| Binary | 15MB | 50MB+ with deps |
 | Startup | ~50ms | ~2s |
 | Memory | ~20MB | ~100MB |
 | Type Safety | Compile-time | Runtime |
@@ -367,12 +380,12 @@ go build -ldflags="-X 'main.Version=1.0.0'" ./cmd/ubot/
 ubot destroy
 ```
 
-Полная очистка:
-- Docker контейнеры (`ubot`, `ubot-sandboxed`) и **все** образы (включая версионные теги)
-- Конфигурацию и данные (`~/.ubot/`)
-- Команду `~/.local/bin/ubot`
-- PATH записи из shell конфигов (`~/.zshrc`, `~/.bashrc`, `~/.bash_profile`, `~/.profile`)
-- Systemd сервис на Linux (`/etc/systemd/system/ubot.service`)
+Full cleanup includes:
+- Docker containers (`ubot`, `ubot-sandboxed`) and **all** images (including versioned tags)
+- Configuration and data (`~/.ubot/`)
+- CLI command (`~/.local/bin/ubot`)
+- PATH entries from shell configs (`~/.zshrc`, `~/.bashrc`, `~/.bash_profile`, `~/.profile`)
+- Systemd service on Linux (`/etc/systemd/system/ubot.service`)
 
 ---
 

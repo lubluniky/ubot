@@ -45,7 +45,7 @@ type BrowserTool struct {
 // NewBrowserTool creates a new BrowserTool.
 func NewBrowserTool() *BrowserTool {
 	home, _ := os.UserHomeDir()
-	workspace := filepath.Join(home, ".nanobot", "workspace")
+	workspace := filepath.Join(home, ".ubot", "workspace")
 
 	parameters := map[string]interface{}{
 		"type": "object",

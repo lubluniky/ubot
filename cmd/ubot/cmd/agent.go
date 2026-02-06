@@ -64,6 +64,8 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	// Create skills loader and discover available skills
 	skillsLoader := skills.NewLoader(dataDir)
+	bundledSkillsPath := config.GetConfigDir() + "/repo/skills"
+	skillsLoader.SetBundledPath(bundledSkillsPath)
 	if err := skillsLoader.Discover(); err != nil {
 		log.Printf("Warning: failed to discover skills: %v", err)
 	}

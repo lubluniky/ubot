@@ -23,4 +23,5 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(skillsCmd)
+	rootCmd.AddCommand(rootchatCmd)
 }
