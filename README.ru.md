@@ -27,7 +27,7 @@
 - **Multi-Channel** — Telegram, WhatsApp (скоро), CLI
 - **Tool System** — файлы, shell, web search, web fetch, browser automation
 - **Voice Support** — транскрипция голосовых сообщений через Whisper (Groq/OpenAI)
-- **Browser Automation** — headless Chrome через CDP для веб-задач
+- **Browser Automation** — headless Chrome через CDP с сохранением сессий, anti-detection stealth, ротацией UA и поддержкой прокси
 - **Proactive Cron** — бот сам инициирует сообщения по расписанию (напоминания, мониторинг)
 - **Security Middleware** — защита от доступа к чувствительным файлам и опасным командам
 - **Skill System** — 9 встроенных скиллов + CLI управление + SKILL.md расширения
@@ -116,6 +116,11 @@ ubot rootchat                 # AI-ассистент для настройки 
   "tools": {
     "web": {
       "search": { "apiKey": "BSA..." }
+    },
+    "browser": {
+      "stealth": true,
+      "proxy": "",
+      "idleTimeout": 300
     }
   },
   "mcp": {
@@ -188,11 +193,53 @@ ubot rootchat                 # AI-ассистент для настройки 
 
 ```
 "Зайди на example.com и скажи что на странице"
+"Залогинься в мой аккаунт на site.com" (используй session: "mysite" для сохранения логина)
 "Найди на сайте кнопку Login и нажми"
 "Сделай скриншот страницы"
+"Покажи мои сохранённые сессии браузера"
 ```
 
-Доступные действия: `browse_page`, `click_element`, `type_text`, `extract_text`, `screenshot`. Браузер запускается лениво при первом вызове и закрывается после 5 минут бездействия.
+Доступные действия: `browse_page`, `click_element`, `type_text`, `extract_text`, `screenshot`, `list_sessions`, `delete_session`.
+
+### Сохранение сессий
+
+Используй параметр `session` для сохранения cookie/логинов между перезапусками. Именованные сессии хранятся в `~/.ubot/workspace/browser-sessions/<имя>/`. Без `session` используется временный профиль (удаляется при закрытии).
+
+### Anti-Detection Stealth
+
+При `stealth: true` (по умолчанию) браузер:
+- Скрывает флаг `navigator.webdriver`
+- Подменяет `navigator.plugins`, `chrome.runtime`, `chrome.app`, `chrome.csi`
+- Переопределяет `navigator.permissions.query`
+- Ротирует User-Agent из пула 5 популярных десктопных UA
+- Рандомизирует размер viewport с небольшими смещениями
+- Устанавливает `--disable-blink-features=AutomationControlled` и другие флаги
+
+### Поддержка прокси
+
+Укажи прокси в `config.json` — поддерживаются HTTP, HTTPS, SOCKS5:
+```json
+{ "tools": { "browser": { "proxy": "socks5://127.0.0.1:1080" } } }
+```
+
+### Конфигурация браузера
+
+```json
+{
+  "tools": {
+    "browser": {
+      "sessionDir": "~/.ubot/workspace/browser-sessions",
+      "proxy": "",
+      "stealth": true,
+      "idleTimeout": 300
+    }
+  }
+}
+```
+
+Браузер запускается лениво при первом вызове и закрывается после таймаута бездействия (по умолчанию: 5 минут).
+
+Подробнее про деплой на Linux: [docs/linux-deploy.md](docs/linux-deploy.md).
 
 ## Proactive Cron
 
@@ -282,6 +329,7 @@ ubot/
 │   ├── tui/            # Terminal UI
 │   └── voice/          # Whisper transcription
 ├── skills/             # Bundled skills
+├── docs/               # Deployment guides
 ├── install.sh          # One-line installer
 ├── Dockerfile
 └── docker-compose.yml

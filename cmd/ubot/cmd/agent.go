@@ -84,7 +84,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	registry.Register(manageUbotTool)
 
 	// Register browser tool
-	browserTool := tools.NewBrowserTool()
+	browserTool := tools.NewBrowserTool(cfg.Tools.Browser)
 	registry.Register(browserTool)
 
 	// Wrap registry with security middleware
@@ -244,7 +244,7 @@ func buildChatMessages(sess *session.Session, skillsSummary string) []providers.
 	chatMessages := make([]providers.ChatMessage, 0, len(messages)+1)
 
 	// Build system message with optional skills summary
-	systemContent := "You are uBot, a helpful AI assistant. You can use tools to help accomplish tasks. Be concise and helpful."
+	systemContent := "You are uBot, a helpful AI assistant. You can use tools to help accomplish tasks: read/write files, execute commands, search the web, and browse websites with a headless browser (use browser_use tool with session parameter to keep logins across restarts). Be concise and helpful."
 
 	// Append skills summary if available
 	if skillsSummary != "" {

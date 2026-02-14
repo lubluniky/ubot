@@ -4,7 +4,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hkuds/ubot/internal/config"
@@ -19,6 +18,7 @@ const (
 	ProviderAnthropic  Provider = "anthropic"
 	ProviderOpenAI     Provider = "openai"
 	ProviderCopilot    Provider = "copilot"
+	ProviderMiniMax    Provider = "minimax"
 	ProviderOllama     Provider = "ollama"
 )
 
@@ -39,6 +39,12 @@ var ModelOptions = map[Provider][]string{
 	},
 	ProviderCopilot: {
 		"gpt-4o",
+	},
+	ProviderMiniMax: {
+		"MiniMax-M2.5",
+		"MiniMax-M2.1",
+		"MiniMax-M2.5-highspeed",
+		"MiniMax-M2.1-highspeed",
 	},
 	ProviderOllama: {}, // User provides model name
 }
@@ -78,6 +84,7 @@ type SetupState struct {
 	BaseURL        string
 	Model          string
 	CustomModel    string
+	MiniMaxRegion string
 	ConfigTelegram bool
 	TelegramToken  string
 	TelegramUsers  string
@@ -195,6 +202,7 @@ func runWelcomeStep(state *SetupState) error {
 					huh.NewOption("Anthropic (Claude models)", string(ProviderAnthropic)),
 					huh.NewOption("OpenAI (GPT models)", string(ProviderOpenAI)),
 					huh.NewOption("GitHub Copilot (free with GitHub)", string(ProviderCopilot)),
+					huh.NewOption("MiniMax Coding Plan (OAuth, free tier)", string(ProviderMiniMax)),
 					huh.NewOption("Ollama/Local (self-hosted)", string(ProviderOllama)),
 				).
 				Value(&provider),
@@ -216,6 +224,8 @@ func runProviderConfigStep(state *SetupState) error {
 		return runAPIKeyStep(state)
 	case ProviderCopilot:
 		return runCopilotAuthStep(state)
+	case ProviderMiniMax:
+		return runMiniMaxAuthStep(state)
 	case ProviderOllama:
 		return runOllamaStep(state)
 	default:
@@ -271,6 +281,36 @@ func runCopilotAuthStep(state *SetupState) error {
 
 	state.APIKey = token
 	return nil
+}
+
+// runMiniMaxAuthStep configures MiniMax Coding Plan with API key and region.
+func runMiniMaxAuthStep(state *SetupState) error {
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Select MiniMax region").
+				Description("Choose the region closest to you (key and region must match)").
+				Options(
+					huh.NewOption("Global (api.minimax.io)", "global"),
+					huh.NewOption("China (api.minimaxi.com)", "cn"),
+				).
+				Value(&state.MiniMaxRegion),
+			huh.NewInput().
+				Title("Enter your MiniMax Coding Plan API key").
+				Description("Get your key at platform.minimax.io → Coding Plan").
+				Placeholder("sk-cp-...").
+				EchoMode(huh.EchoModePassword).
+				Value(&state.APIKey).
+				Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("API key is required")
+					}
+					return nil
+				}),
+		),
+	)
+
+	return form.Run()
 }
 
 // runOllamaStep configures Ollama/local provider.
@@ -585,6 +625,13 @@ func buildSummary(state *SetupState) string {
 	if state.Provider == ProviderOllama {
 		sb.WriteString(fmt.Sprintf("Base URL: %s\n", state.BaseURL))
 	}
+	if state.Provider == ProviderMiniMax {
+		region := state.MiniMaxRegion
+		if region == "" {
+			region = "global"
+		}
+		sb.WriteString(fmt.Sprintf("Region: %s\n", region))
+	}
 
 	sb.WriteString("\n")
 
@@ -649,6 +696,11 @@ func buildConfigFromState(state *SetupState) *config.Config {
 		cfg.Providers.Copilot.Enabled = true
 		cfg.Providers.Copilot.AccessToken = state.APIKey
 		cfg.Providers.Copilot.Model = model
+	case ProviderMiniMax:
+		cfg.Providers.MiniMax.Enabled = true
+		cfg.Providers.MiniMax.Region = state.MiniMaxRegion
+		cfg.Providers.MiniMax.APIKey = state.APIKey
+		cfg.Providers.MiniMax.Model = model
 	case ProviderOllama:
 		cfg.Providers.VLLM.APIBase = state.BaseURL
 	}

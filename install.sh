@@ -785,6 +785,66 @@ SCRIPT
     add_to_path
 }
 
+# Install Chromium for browser automation (optional, native mode)
+install_chromium_optional() {
+    # Skip if Chrome/Chromium is already installed
+    if has_cmd google-chrome || has_cmd google-chrome-stable || has_cmd chromium || has_cmd chromium-browser; then
+        success "Chrome/Chromium found (browser automation ready)"
+        return 0
+    fi
+
+    # On macOS check the .app bundle
+    if [[ "$PLATFORM" == "darwin" ]]; then
+        if [ -d "/Applications/Google Chrome.app" ] || [ -d "/Applications/Chromium.app" ]; then
+            success "Chrome found in /Applications (browser automation ready)"
+            return 0
+        fi
+    fi
+
+    step "Chromium not found (optional: needed for browser_use tool)"
+    echo ""
+    echo "  The browser_use tool requires Chrome or Chromium."
+    echo "  You can install it now or skip and install later."
+    echo ""
+    read -p "  Install Chromium? [y/N] " -n 1 -r < /dev/tty
+    echo ""
+
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        info "Skipped. Install Chromium later if you need the browser tool."
+        return 0
+    fi
+
+    if [[ "$PLATFORM" == "darwin" ]]; then
+        if has_cmd brew; then
+            brew install --cask chromium
+        else
+            info "Install Google Chrome from https://www.google.com/chrome/"
+        fi
+    elif [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
+        sudo apt-get update && sudo apt-get install -y chromium-browser \
+            libnss3 libatk-bridge2.0-0 libx11-xcb1 libxcomposite1 \
+            libxdamage1 libxrandr2 libgbm1 libasound2 libpangocairo-1.0-0 \
+            libgtk-3-0 fonts-liberation 2>/dev/null || \
+        sudo apt-get install -y chromium \
+            libnss3 libatk-bridge2.0-0 fonts-liberation 2>/dev/null || \
+        warn "Could not install Chromium automatically"
+    elif [[ "$OS" == "fedora" ]]; then
+        sudo dnf install -y chromium
+    elif [[ "$OS" == "arch" ]]; then
+        sudo pacman -S --noconfirm chromium
+    elif [[ "$OS" == "alpine" ]]; then
+        sudo apk add chromium nss freetype harfbuzz ca-certificates ttf-freefont
+    else
+        info "Install Chromium manually for browser automation support."
+    fi
+
+    if has_cmd chromium || has_cmd chromium-browser || has_cmd google-chrome; then
+        success "Chromium installed (browser automation ready)"
+    else
+        warn "Chromium not installed. browser_use tool will not be available."
+    fi
+}
+
 # Main installation flow
 main() {
     print_banner
@@ -806,6 +866,7 @@ main() {
         setup_repository
         build_native
         setup_dirs
+        install_chromium_optional
         create_native_scripts
     fi
 

@@ -58,6 +58,7 @@ type ProvidersConfig struct {
 	Gemini     ProviderConfig        `json:"gemini"`
 	VLLM       ProviderConfig        `json:"vllm"`
 	Copilot    CopilotProviderConfig `json:"copilot"`
+	MiniMax    MiniMaxProviderConfig `json:"minimax"`
 }
 
 // ProviderConfig represents a standard LLM provider configuration.
@@ -71,6 +72,14 @@ type CopilotProviderConfig struct {
 	Enabled     bool   `json:"enabled"`
 	AccessToken string `json:"accessToken,omitempty"`
 	Model       string `json:"model,omitempty"`
+}
+
+// MiniMaxProviderConfig represents MiniMax Coding Plan provider configuration.
+type MiniMaxProviderConfig struct {
+	Enabled bool   `json:"enabled"`
+	Region  string `json:"region,omitempty"` // "global" or "cn"
+	APIKey  string `json:"apiKey,omitempty"`
+	Model   string `json:"model,omitempty"`
 }
 
 // GatewayConfig holds HTTP gateway configuration.
@@ -90,9 +99,18 @@ type VoiceConfig struct {
 
 // ToolsConfig holds tool-related configurations.
 type ToolsConfig struct {
-	Web   WebToolsConfig `json:"web"`
-	Exec  ExecToolConfig `json:"exec"`
-	Voice VoiceConfig    `json:"voice"`
+	Web     WebToolsConfig `json:"web"`
+	Exec    ExecToolConfig `json:"exec"`
+	Voice   VoiceConfig    `json:"voice"`
+	Browser BrowserConfig  `json:"browser"`
+}
+
+// BrowserConfig holds headless browser tool configuration.
+type BrowserConfig struct {
+	SessionDir  string `json:"sessionDir,omitempty"`  // persistent session storage dir; default ~/.ubot/workspace/browser-sessions
+	Proxy       string `json:"proxy,omitempty"`       // proxy URL, e.g. "socks5://127.0.0.1:1080"
+	Stealth     bool   `json:"stealth"`               // enable anti-detection stealth; default true
+	IdleTimeout int    `json:"idleTimeout,omitempty"` // seconds before idle browser is closed; default 300
 }
 
 // WebToolsConfig represents web-related tools configuration.
@@ -181,6 +199,11 @@ func DefaultConfig() *Config {
 				AccessToken: "",
 				Model:       "gpt-4o",
 			},
+			MiniMax: MiniMaxProviderConfig{
+				Enabled: false,
+				Region:  "global",
+				Model:   "MiniMax-M2.5",
+			},
 		},
 		Gateway: GatewayConfig{
 			Host: "127.0.0.1",
@@ -196,6 +219,11 @@ func DefaultConfig() *Config {
 			Exec: ExecToolConfig{
 				Timeout:             30,
 				RestrictToWorkspace: true,
+			},
+			Browser: BrowserConfig{
+				SessionDir:  "~/.ubot/workspace/browser-sessions",
+				Stealth:     true,
+				IdleTimeout: 300,
 			},
 		},
 		MCP: MCPConfig{
@@ -221,6 +249,11 @@ func (c *Config) GetActiveProvider() (name string, apiKey string, apiBase string
 	// Check Copilot first (uses access token instead of API key)
 	if c.Providers.Copilot.Enabled && c.Providers.Copilot.AccessToken != "" {
 		return "copilot", c.Providers.Copilot.AccessToken, ""
+	}
+
+	// Check MiniMax
+	if c.Providers.MiniMax.Enabled && c.Providers.MiniMax.APIKey != "" {
+		return "minimax", c.Providers.MiniMax.APIKey, ""
 	}
 
 	// Check OpenRouter

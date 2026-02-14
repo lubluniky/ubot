@@ -157,7 +157,7 @@ func runRootchat(cmd *cobra.Command, args []string) error {
 	registry.Register(manageUbotTool)
 
 	// Register browser tool
-	browserTool := tools.NewBrowserTool()
+	browserTool := tools.NewBrowserTool(cfg.Tools.Browser)
 	registry.Register(browserTool)
 
 	// Wrap registry with security middleware

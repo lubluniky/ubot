@@ -17,7 +17,7 @@ const (
 )
 
 // NewProviderFromConfig creates a Provider based on the configuration.
-// It checks providers in priority order: Copilot > OpenRouter > Anthropic > OpenAI > Gemini > Groq > VLLM.
+// It checks providers in priority order: Copilot > MiniMax > OpenRouter > Anthropic > OpenAI > Gemini > Groq > VLLM.
 func NewProviderFromConfig(cfg *config.Config) (Provider, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -32,7 +32,16 @@ func NewProviderFromConfig(cfg *config.Config) (Provider, error) {
 		return NewCopilotProvider(cfg.Providers.Copilot.AccessToken, model), nil
 	}
 
-	// Priority 2: OpenRouter
+	// Priority 2: MiniMax (if enabled)
+	if cfg.Providers.MiniMax.Enabled && cfg.Providers.MiniMax.APIKey != "" {
+		model := cfg.Providers.MiniMax.Model
+		if model == "" {
+			model = DefaultMiniMaxModel
+		}
+		return NewMiniMaxProvider(cfg.Providers.MiniMax.APIKey, cfg.Providers.MiniMax.Region, model), nil
+	}
+
+	// Priority 3: OpenRouter
 	if cfg.Providers.OpenRouter.APIKey != "" {
 		apiBase := cfg.Providers.OpenRouter.APIBase
 		if apiBase == "" {
@@ -41,7 +50,7 @@ func NewProviderFromConfig(cfg *config.Config) (Provider, error) {
 		return NewOpenAIProvider("openrouter", cfg.Providers.OpenRouter.APIKey, apiBase, DefaultOpenRouterModel), nil
 	}
 
-	// Priority 3: Anthropic
+	// Priority 4: Anthropic
 	if cfg.Providers.Anthropic.APIKey != "" {
 		apiBase := cfg.Providers.Anthropic.APIBase
 		if apiBase == "" {
@@ -50,7 +59,7 @@ func NewProviderFromConfig(cfg *config.Config) (Provider, error) {
 		return NewOpenAIProvider("anthropic", cfg.Providers.Anthropic.APIKey, apiBase, DefaultAnthropicModel), nil
 	}
 
-	// Priority 4: OpenAI
+	// Priority 5: OpenAI
 	if cfg.Providers.OpenAI.APIKey != "" {
 		apiBase := cfg.Providers.OpenAI.APIBase
 		if apiBase == "" {
@@ -59,7 +68,7 @@ func NewProviderFromConfig(cfg *config.Config) (Provider, error) {
 		return NewOpenAIProvider("openai", cfg.Providers.OpenAI.APIKey, apiBase, DefaultOpenAIModel), nil
 	}
 
-	// Priority 5: Gemini
+	// Priority 6: Gemini
 	if cfg.Providers.Gemini.APIKey != "" {
 		apiBase := cfg.Providers.Gemini.APIBase
 		if apiBase == "" {
@@ -68,7 +77,7 @@ func NewProviderFromConfig(cfg *config.Config) (Provider, error) {
 		return NewOpenAIProvider("gemini", cfg.Providers.Gemini.APIKey, apiBase, DefaultGeminiModel), nil
 	}
 
-	// Priority 6: Groq
+	// Priority 7: Groq
 	if cfg.Providers.Groq.APIKey != "" {
 		apiBase := cfg.Providers.Groq.APIBase
 		if apiBase == "" {
@@ -77,7 +86,7 @@ func NewProviderFromConfig(cfg *config.Config) (Provider, error) {
 		return NewOpenAIProvider("groq", cfg.Providers.Groq.APIKey, apiBase, DefaultGroqModel), nil
 	}
 
-	// Priority 7: VLLM (may work without API key for local deployments)
+	// Priority 8: VLLM (may work without API key for local deployments)
 	if cfg.Providers.VLLM.APIBase != "" {
 		return NewOpenAIProvider("vllm", cfg.Providers.VLLM.APIKey, cfg.Providers.VLLM.APIBase, DefaultVLLMModel), nil
 	}
@@ -105,6 +114,19 @@ func NewProviderByName(cfg *config.Config, name string) (Provider, error) {
 			model = CopilotDefaultModel
 		}
 		return NewCopilotProvider(cfg.Providers.Copilot.AccessToken, model), nil
+
+	case "minimax":
+		if !cfg.Providers.MiniMax.Enabled {
+			return nil, fmt.Errorf("minimax provider is not enabled")
+		}
+		if cfg.Providers.MiniMax.APIKey == "" {
+			return nil, fmt.Errorf("minimax API key is not configured")
+		}
+		model := cfg.Providers.MiniMax.Model
+		if model == "" {
+			model = DefaultMiniMaxModel
+		}
+		return NewMiniMaxProvider(cfg.Providers.MiniMax.APIKey, cfg.Providers.MiniMax.Region, model), nil
 
 	case "openrouter":
 		if cfg.Providers.OpenRouter.APIKey == "" {
@@ -178,6 +200,9 @@ func ListAvailableProviders(cfg *config.Config) []string {
 
 	if cfg.Providers.Copilot.Enabled && cfg.Providers.Copilot.AccessToken != "" {
 		providers = append(providers, "copilot")
+	}
+	if cfg.Providers.MiniMax.Enabled && cfg.Providers.MiniMax.APIKey != "" {
+		providers = append(providers, "minimax")
 	}
 	if cfg.Providers.OpenRouter.APIKey != "" {
 		providers = append(providers, "openrouter")

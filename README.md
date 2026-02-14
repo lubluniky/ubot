@@ -27,7 +27,7 @@
 - **Multi-Channel** — Telegram, WhatsApp (coming soon), CLI
 - **Tool System** — files, shell, web search, web fetch, browser automation
 - **Voice Support** — voice message transcription via Whisper (Groq/OpenAI)
-- **Browser Automation** — headless Chrome via CDP for web tasks
+- **Browser Automation** — headless Chrome via CDP with session persistence, anti-detection stealth, UA rotation, and proxy support
 - **Proactive Cron** — the bot proactively sends messages on a schedule (reminders, monitoring)
 - **Security Middleware** — protection against access to sensitive files and dangerous commands
 - **Skill System** — 9 built-in skills + CLI management + SKILL.md extensions
@@ -123,6 +123,11 @@ Config file: `~/.ubot/config.json`
   "tools": {
     "web": {
       "search": { "apiKey": "BSA..." }
+    },
+    "browser": {
+      "stealth": true,
+      "proxy": "",
+      "idleTimeout": 300
     }
   },
   "mcp": {
@@ -195,11 +200,53 @@ The bot can control headless Chrome for web tasks:
 
 ```
 "Go to example.com and tell me what's on the page"
+"Log into my account on site.com" (use session: "mysite" to persist login)
 "Find the Login button on the site and click it"
 "Take a screenshot of the page"
+"List my saved browser sessions"
 ```
 
-Available actions: `browse_page`, `click_element`, `type_text`, `extract_text`, `screenshot`. The browser launches lazily on first use and shuts down after 5 minutes of inactivity.
+Available actions: `browse_page`, `click_element`, `type_text`, `extract_text`, `screenshot`, `list_sessions`, `delete_session`.
+
+### Session Persistence
+
+Use the `session` parameter to keep cookies/logins across restarts. Named sessions are stored in `~/.ubot/workspace/browser-sessions/<name>/`. Without `session`, a temporary profile is used (wiped on close).
+
+### Anti-Detection Stealth
+
+When `stealth: true` (default), the browser:
+- Hides `navigator.webdriver` fingerprint
+- Mocks `navigator.plugins`, `chrome.runtime`, `chrome.app`, `chrome.csi`
+- Overrides `navigator.permissions.query`
+- Rotates User-Agent from a pool of 5 common desktop UAs
+- Randomizes viewport size with small offsets
+- Sets `--disable-blink-features=AutomationControlled` and other flags
+
+### Proxy Support
+
+Set a proxy in `config.json` — supports HTTP, HTTPS, SOCKS5:
+```json
+{ "tools": { "browser": { "proxy": "socks5://127.0.0.1:1080" } } }
+```
+
+### Browser Config
+
+```json
+{
+  "tools": {
+    "browser": {
+      "sessionDir": "~/.ubot/workspace/browser-sessions",
+      "proxy": "",
+      "stealth": true,
+      "idleTimeout": 300
+    }
+  }
+}
+```
+
+The browser launches lazily on first use and shuts down after idle timeout (default: 5 minutes).
+
+See [docs/linux-deploy.md](docs/linux-deploy.md) for Linux/Docker deployment with Chromium.
 
 ## Proactive Cron
 
@@ -289,6 +336,7 @@ ubot/
 │   ├── tui/            # Terminal UI
 │   └── voice/          # Whisper transcription
 ├── skills/             # Bundled skills
+├── docs/               # Deployment guides
 ├── install.sh          # One-line installer
 ├── Dockerfile
 └── docker-compose.yml

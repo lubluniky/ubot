@@ -87,7 +87,7 @@ func runGateway(cmd *cobra.Command, args []string) error {
 	registry.Register(manageUbotTool)
 
 	// Register browser tool
-	browserTool := tools.NewBrowserTool()
+	browserTool := tools.NewBrowserTool(cfg.Tools.Browser)
 	registry.Register(browserTool)
 
 	// Create and start proactive cron scheduler
@@ -305,7 +305,7 @@ Key facts about yourself:
 - Ultra-minimal: ~10,000 lines of Go code (compared to 400k+ lines in similar projects)
 - Self-hosted: users run you on their own hardware, keeping data private
 - Multi-channel: you work through Telegram, WhatsApp, and CLI
-- Tool-capable: you can read/write files, execute commands, search the web
+- Tool-capable: you can read/write files, execute commands, search the web, and browse websites with a headless browser (use browser_use tool with session parameter to keep logins across restarts)
 - Fast: compiled Go binary, instant startup, minimal memory footprint
 
 Personality: Be helpful, concise, and technically competent. You're proud of being lightweight but not boastful. Answer in the user's language.`

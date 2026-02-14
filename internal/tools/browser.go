@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -17,43 +18,80 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/hkuds/ubot/internal/config"
 )
 
 const (
 	browserActionTimeout   = 30 * time.Second
-	browserIdleTimeout     = 5 * time.Minute
 	maxBrowserContentChars = 50000
 )
 
+// Common desktop User-Agent strings for stealth rotation.
+var stealthUserAgents = []string{
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+}
+
+// Common desktop viewport sizes (width x height).
+var commonViewports = [][2]int{
+	{1920, 1080},
+	{1366, 768},
+	{1536, 864},
+	{1440, 900},
+	{1280, 720},
+}
+
+// stealthScripts are injected via Runtime.evaluate after launch/navigation
+// to hide headless Chrome fingerprints.
+var stealthScripts = []string{
+	// Hide navigator.webdriver flag.
+	`Object.defineProperty(navigator, 'webdriver', {get: () => undefined})`,
+	// Mock navigator.plugins with realistic entries.
+	`Object.defineProperty(navigator, 'plugins', {get: () => [
+		{name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format'},
+		{name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: ''},
+		{name: 'Native Client', filename: 'internal-nacl-plugin', description: ''}
+	]})`,
+	// Override permissions.query to return 'prompt' for notifications.
+	`(function(){const orig=navigator.permissions.query;navigator.permissions.query=function(p){return p.name==='notifications'?Promise.resolve({state:Notification.permission||'prompt'}):orig.call(this,p)}})()`,
+	// Patch chrome.runtime to prevent detection via id check.
+	`if(!window.chrome)window.chrome={};if(!window.chrome.runtime)window.chrome.runtime={PlatformOs:{MAC:'mac',WIN:'win',ANDROID:'android',CROS:'cros',LINUX:'linux',OPENBSD:'openbsd'},PlatformArch:{ARM:'arm',X86_32:'x86-32',X86_64:'x86-64',MIPS:'mips',MIPS64:'mips64'},PlatformNaclArch:{ARM:'arm',X86_32:'x86-32',X86_64:'x86-64',MIPS:'mips',MIPS64:'mips64'},RequestUpdateCheckStatus:{THROTTLED:'throttled',NO_UPDATE:'no_update',UPDATE_AVAILABLE:'update_available'}};`,
+	// Mock chrome.app and chrome.csi.
+	`if(!window.chrome.app)window.chrome.app={isInstalled:false,InstallState:{INSTALLED:'installed',NOT_INSTALLED:'not_installed',DISABLED:'disabled'},RunningState:{RUNNING:'running',CANNOT_RUN:'cannot_run',READY_TO_RUN:'ready_to_run'}};if(!window.chrome.csi)window.chrome.csi=function(){return{onloadT:Date.now(),startE:Date.now(),pageT:performance.now(),tran:15}};`,
+}
+
 // browserInstance holds a running headless Chrome process and its CDP endpoint.
 type browserInstance struct {
-	cmd        *exec.Cmd
-	cdpURL     string
-	lastUsed   time.Time
-	mu         sync.Mutex
-	cancelIdle context.CancelFunc
+	cmd         *exec.Cmd
+	cdpURL      string
+	lastUsed    time.Time
+	mu          sync.Mutex
+	cancelIdle  context.CancelFunc
+	sessionName string // empty = temp dir (no persistence)
+	userDataDir string // path to user-data-dir (temp or persistent)
+	userAgent   string // user-agent used for this instance
 }
 
 // BrowserTool provides browser automation capabilities using headless Chrome.
 type BrowserTool struct {
 	BaseTool
-	browser      *browserInstance
-	mu           sync.Mutex
-	workspaceDir string
+	browser    *browserInstance
+	mu         sync.Mutex
+	browserCfg config.BrowserConfig
 }
 
-// NewBrowserTool creates a new BrowserTool.
-func NewBrowserTool() *BrowserTool {
-	home, _ := os.UserHomeDir()
-	workspace := filepath.Join(home, ".ubot", "workspace")
-
+// NewBrowserTool creates a new BrowserTool with the given config.
+func NewBrowserTool(cfg config.BrowserConfig) *BrowserTool {
 	parameters := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
 			"action": map[string]interface{}{
 				"type":        "string",
 				"description": "Browser action to perform",
-				"enum":        []string{"browse_page", "click_element", "type_text", "extract_text", "screenshot"},
+				"enum":        []string{"browse_page", "click_element", "type_text", "extract_text", "screenshot", "list_sessions", "delete_session"},
 			},
 			"url": map[string]interface{}{
 				"type":        "string",
@@ -67,17 +105,31 @@ func NewBrowserTool() *BrowserTool {
 				"type":        "string",
 				"description": "Text to type into the element (required for type_text)",
 			},
+			"session": map[string]interface{}{
+				"type":        "string",
+				"description": "Named browser session for cookie/login persistence across restarts. If set, profile is saved to disk. If empty, a temporary profile is used.",
+			},
 		},
 		"required": []string{"action"},
+	}
+
+	// Resolve session dir default.
+	if cfg.SessionDir == "" {
+		cfg.SessionDir = "~/.ubot/workspace/browser-sessions"
+	}
+	cfg.SessionDir = expandTilde(cfg.SessionDir)
+
+	if cfg.IdleTimeout <= 0 {
+		cfg.IdleTimeout = 300
 	}
 
 	return &BrowserTool{
 		BaseTool: NewBaseTool(
 			"browser_use",
-			"Automate a headless Chrome browser. Actions: browse_page (navigate to URL and return content), click_element (click a CSS selector), type_text (type into an input), extract_text (get text from selector), screenshot (capture the page).",
+			"Automate a headless Chrome browser. Actions: browse_page (navigate to URL and return content), click_element (click a CSS selector), type_text (type into an input), extract_text (get text from selector), screenshot (capture the page), list_sessions (show saved browser sessions), delete_session (remove a named session). Use the 'session' parameter to persist cookies/logins across restarts.",
 			parameters,
 		),
-		workspaceDir: workspace,
+		browserCfg: cfg,
 	}
 }
 
@@ -103,9 +155,77 @@ func (t *BrowserTool) Execute(ctx context.Context, params map[string]interface{}
 		return t.extractText(actionCtx, params)
 	case "screenshot":
 		return t.screenshot(actionCtx, params)
+	case "list_sessions":
+		return t.listSessions()
+	case "delete_session":
+		return t.deleteSession(params)
 	default:
-		return "", fmt.Errorf("browser_use: unknown action %q, must be one of: browse_page, click_element, type_text, extract_text, screenshot", action)
+		return "", fmt.Errorf("browser_use: unknown action %q, must be one of: browse_page, click_element, type_text, extract_text, screenshot, list_sessions, delete_session", action)
 	}
+}
+
+// listSessions lists saved browser session directories.
+func (t *BrowserTool) listSessions() (string, error) {
+	entries, err := os.ReadDir(t.browserCfg.SessionDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "No saved browser sessions.", nil
+		}
+		return "", fmt.Errorf("browser_use list_sessions: %w", err)
+	}
+
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) == 0 {
+		return "No saved browser sessions.", nil
+	}
+	return fmt.Sprintf("Saved browser sessions:\n- %s", strings.Join(names, "\n- ")), nil
+}
+
+// deleteSession removes a named session directory.
+func (t *BrowserTool) deleteSession(params map[string]interface{}) (string, error) {
+	sessionName, err := GetStringParam(params, "session")
+	if err != nil || sessionName == "" {
+		return "", fmt.Errorf("browser_use delete_session: 'session' parameter is required")
+	}
+
+	// Sanitize: only allow alphanumeric, dash, underscore.
+	if !isValidSessionName(sessionName) {
+		return "", fmt.Errorf("browser_use delete_session: invalid session name %q (use alphanumeric, dash, underscore)", sessionName)
+	}
+
+	// If the running browser uses this session, close it first.
+	t.mu.Lock()
+	if t.browser != nil && t.browser.sessionName == sessionName {
+		t.closeBrowserLocked()
+	}
+	t.mu.Unlock()
+
+	dir := filepath.Join(t.browserCfg.SessionDir, sessionName)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return fmt.Sprintf("Session %q does not exist.", sessionName), nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return "", fmt.Errorf("browser_use delete_session: %w", err)
+	}
+	return fmt.Sprintf("Session %q deleted.", sessionName), nil
+}
+
+// isValidSessionName checks that a session name is safe for use as a directory name.
+func isValidSessionName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // findChromeBinary locates a Chrome/Chromium binary on the system.
@@ -144,9 +264,16 @@ func freePort() (int, error) {
 }
 
 // ensureBrowser starts a headless Chrome instance if not already running.
-func (t *BrowserTool) ensureBrowser() (*browserInstance, error) {
+// If a session name is provided and differs from the running instance,
+// the old instance is closed and a new one is launched with the new profile.
+func (t *BrowserTool) ensureBrowser(sessionName string) (*browserInstance, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	// If there's a running browser with a different session, close it.
+	if t.browser != nil && t.browser.sessionName != sessionName {
+		t.closeBrowserLocked()
+	}
 
 	if t.browser != nil && t.browser.cmd.Process != nil {
 		// Check if process is still alive.
@@ -170,10 +297,29 @@ func (t *BrowserTool) ensureBrowser() (*browserInstance, error) {
 		return nil, fmt.Errorf("browser_use: failed to find free port: %w", err)
 	}
 
-	userDataDir, err := os.MkdirTemp("", "ubot-browser-*")
-	if err != nil {
-		return nil, fmt.Errorf("browser_use: failed to create temp dir: %w", err)
+	// Determine user-data-dir: persistent or temp.
+	var userDataDir string
+	persistent := false
+	if sessionName != "" {
+		userDataDir = filepath.Join(t.browserCfg.SessionDir, sessionName)
+		if err := os.MkdirAll(userDataDir, 0700); err != nil {
+			return nil, fmt.Errorf("browser_use: failed to create session dir: %w", err)
+		}
+		persistent = true
+	} else {
+		userDataDir, err = os.MkdirTemp("", "ubot-browser-*")
+		if err != nil {
+			return nil, fmt.Errorf("browser_use: failed to create temp dir: %w", err)
+		}
 	}
+
+	// Pick a user-agent.
+	ua := stealthUserAgents[rand.Intn(len(stealthUserAgents))]
+
+	// Pick a viewport with small random offset.
+	vp := commonViewports[rand.Intn(len(commonViewports))]
+	vpW := vp[0] + rand.Intn(21) - 10 // ±10
+	vpH := vp[1] + rand.Intn(21) - 10
 
 	args := []string{
 		"--headless=new",
@@ -187,15 +333,33 @@ func (t *BrowserTool) ensureBrowser() (*browserInstance, error) {
 		"--mute-audio",
 		"--no-sandbox",
 		fmt.Sprintf("--user-data-dir=%s", userDataDir),
-		"about:blank",
+		fmt.Sprintf("--user-agent=%s", ua),
+		fmt.Sprintf("--window-size=%d,%d", vpW, vpH),
 	}
+
+	// Anti-detection flags (always added, low cost).
+	args = append(args,
+		"--disable-blink-features=AutomationControlled",
+		"--disable-infobars",
+		"--disable-dev-shm-usage",
+		"--lang=en-US,en",
+	)
+
+	// Proxy support.
+	if t.browserCfg.Proxy != "" {
+		args = append(args, fmt.Sprintf("--proxy-server=%s", t.browserCfg.Proxy))
+	}
+
+	args = append(args, "about:blank")
 
 	cmd := exec.Command(chromePath, args...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 
 	if err := cmd.Start(); err != nil {
-		os.RemoveAll(userDataDir)
+		if !persistent {
+			os.RemoveAll(userDataDir)
+		}
 		return nil, fmt.Errorf("browser_use: failed to start Chrome: %w", err)
 	}
 
@@ -219,17 +383,28 @@ func (t *BrowserTool) ensureBrowser() (*browserInstance, error) {
 	if !ready {
 		cmd.Process.Kill()
 		cmd.Wait()
-		os.RemoveAll(userDataDir)
+		if !persistent {
+			os.RemoveAll(userDataDir)
+		}
 		return nil, fmt.Errorf("browser_use: Chrome CDP did not become ready")
 	}
 
+	// Inject stealth scripts if enabled.
+	if t.browserCfg.Stealth {
+		t.injectStealthScripts(cdpURL)
+	}
+
+	idleTimeout := time.Duration(t.browserCfg.IdleTimeout) * time.Second
 	idleCtx, cancelIdle := context.WithCancel(context.Background())
 
 	bi := &browserInstance{
-		cmd:        cmd,
-		cdpURL:     cdpURL,
-		lastUsed:   time.Now(),
-		cancelIdle: cancelIdle,
+		cmd:         cmd,
+		cdpURL:      cdpURL,
+		lastUsed:    time.Now(),
+		cancelIdle:  cancelIdle,
+		sessionName: sessionName,
+		userDataDir: userDataDir,
+		userAgent:   ua,
 	}
 
 	// Start idle timeout goroutine.
@@ -244,9 +419,9 @@ func (t *BrowserTool) ensureBrowser() (*browserInstance, error) {
 				bi.mu.Lock()
 				idle := time.Since(bi.lastUsed)
 				bi.mu.Unlock()
-				if idle > browserIdleTimeout {
+				if idle > idleTimeout {
 					t.mu.Lock()
-					t.closeBrowserLocked(userDataDir)
+					t.closeBrowserLocked()
 					t.mu.Unlock()
 					return
 				}
@@ -258,8 +433,50 @@ func (t *BrowserTool) ensureBrowser() (*browserInstance, error) {
 	return bi, nil
 }
 
+// injectStealthScripts runs stealth JS on the first page target via CDP WebSocket-free approach.
+func (t *BrowserTool) injectStealthScripts(cdpURL string) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(cdpURL + "/json/list")
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	var targets []cdpTargetInfo
+	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
+		return
+	}
+
+	for _, target := range targets {
+		if target.Type != "page" {
+			continue
+		}
+		for _, script := range stealthScripts {
+			reqBody, _ := json.Marshal(map[string]interface{}{
+				"id":     1,
+				"method": "Runtime.evaluate",
+				"params": map[string]interface{}{
+					"expression":    script,
+					"returnByValue": true,
+				},
+			})
+			url := fmt.Sprintf("%s/json/protocol/%s", cdpURL, target.ID)
+			req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(reqBody))
+			if err != nil {
+				continue
+			}
+			req.Header.Set("Content-Type", "application/json")
+			r, err := client.Do(req)
+			if err == nil {
+				r.Body.Close()
+			}
+		}
+	}
+}
+
 // closeBrowserLocked kills the browser process. Must be called with t.mu held.
-func (t *BrowserTool) closeBrowserLocked(userDataDir string) {
+// Persistent session dirs are NOT removed.
+func (t *BrowserTool) closeBrowserLocked() {
 	if t.browser == nil {
 		return
 	}
@@ -270,8 +487,9 @@ func (t *BrowserTool) closeBrowserLocked(userDataDir string) {
 		t.browser.cmd.Process.Kill()
 		t.browser.cmd.Wait()
 	}
-	if userDataDir != "" {
-		os.RemoveAll(userDataDir)
+	// Only remove temp dirs (non-persistent sessions).
+	if t.browser.sessionName == "" && t.browser.userDataDir != "" {
+		os.RemoveAll(t.browser.userDataDir)
 	}
 	t.browser = nil
 }
@@ -280,7 +498,7 @@ func (t *BrowserTool) closeBrowserLocked(userDataDir string) {
 func (t *BrowserTool) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.closeBrowserLocked("")
+	t.closeBrowserLocked()
 }
 
 // cdpTargetInfo holds info about a CDP target (page).
@@ -336,18 +554,19 @@ func (t *BrowserTool) cdpSend(ctx context.Context, bi *browserInstance, targetID
 		return nil, fmt.Errorf("browser_use: failed to marshal CDP command: %w", err)
 	}
 
-	// Use the /json/protocol endpoint via HTTP to send commands.
-	// Chrome's CDP HTTP API: POST /json/protocol with method and params.
-	// Actually, the standard way is via WebSocket, but we can use the
-	// simplified HTTP endpoints for navigation.
-
-	// For operations that need CDP protocol commands, we use a shell approach
-	// with Chrome's built-in endpoints.
 	_ = body
 	_ = ctx
 
-	// Chrome HTTP API has limited commands. For full CDP we use a helper approach.
 	return nil, nil
+}
+
+// getSessionParam extracts the optional session parameter from params.
+func getSessionParam(params map[string]interface{}) string {
+	s, _ := params["session"].(string)
+	if s != "" && !isValidSessionName(s) {
+		return "" // silently ignore invalid names
+	}
+	return s
 }
 
 // browsePage navigates to a URL and returns page content.
@@ -371,7 +590,8 @@ func (t *BrowserTool) browsePage(ctx context.Context, params map[string]interfac
 		return "", fmt.Errorf("browser_use browse_page: access to internal/private network addresses is blocked")
 	}
 
-	bi, err := t.ensureBrowser()
+	sessionName := getSessionParam(params)
+	bi, err := t.ensureBrowser(sessionName)
 	if err != nil {
 		return "", err
 	}
@@ -384,25 +604,23 @@ func (t *BrowserTool) browsePage(ctx context.Context, params map[string]interfac
 	// Navigate via CDP HTTP API.
 	client := &http.Client{Timeout: browserActionTimeout}
 	navURL := fmt.Sprintf("%s/json/navigate?%s", bi.cdpURL, targetID)
-
-	// Chrome doesn't have a direct /json/navigate. Use the approach of
-	// activating a target and then using shell-based page dump, or
-	// fetch the page content directly via HTTP and use goquery.
 	_ = navURL
 
-	// Practical approach: use Chrome's --dump-dom or fetch via HTTP client
-	// and parse with goquery for rich content extraction.
-	return t.fetchAndParsePage(ctx, client, urlStr)
+	return t.fetchAndParsePage(ctx, client, urlStr, bi.userAgent)
 }
 
 // fetchAndParsePage fetches a URL and extracts content using goquery.
-func (t *BrowserTool) fetchAndParsePage(ctx context.Context, client *http.Client, urlStr string) (string, error) {
+func (t *BrowserTool) fetchAndParsePage(ctx context.Context, client *http.Client, urlStr string, userAgent string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
 		return "", fmt.Errorf("browser_use browse_page: failed to create request: %w", err)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	if userAgent == "" {
+		userAgent = stealthUserAgents[0]
+	}
+	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -500,7 +718,8 @@ func (t *BrowserTool) clickElement(ctx context.Context, params map[string]interf
 		return "", fmt.Errorf("browser_use click_element: selector cannot be empty")
 	}
 
-	bi, err := t.ensureBrowser()
+	sessionName := getSessionParam(params)
+	bi, err := t.ensureBrowser(sessionName)
 	if err != nil {
 		return "", err
 	}
@@ -535,7 +754,8 @@ func (t *BrowserTool) typeText(ctx context.Context, params map[string]interface{
 		return "", fmt.Errorf("browser_use type_text: %w", err)
 	}
 
-	bi, err := t.ensureBrowser()
+	sessionName := getSessionParam(params)
+	bi, err := t.ensureBrowser(sessionName)
 	if err != nil {
 		return "", err
 	}
@@ -570,7 +790,8 @@ func (t *BrowserTool) extractText(ctx context.Context, params map[string]interfa
 		return "", fmt.Errorf("browser_use extract_text: selector cannot be empty")
 	}
 
-	bi, err := t.ensureBrowser()
+	sessionName := getSessionParam(params)
+	bi, err := t.ensureBrowser(sessionName)
 	if err != nil {
 		return "", err
 	}
@@ -591,7 +812,8 @@ func (t *BrowserTool) extractText(ctx context.Context, params map[string]interfa
 
 // screenshot captures a screenshot of the current page.
 func (t *BrowserTool) screenshot(ctx context.Context, params map[string]interface{}) (string, error) {
-	bi, err := t.ensureBrowser()
+	sessionName := getSessionParam(params)
+	bi, err := t.ensureBrowser(sessionName)
 	if err != nil {
 		return "", err
 	}
@@ -603,7 +825,8 @@ func (t *BrowserTool) screenshot(ctx context.Context, params map[string]interfac
 	}
 
 	// Ensure workspace screenshots directory exists.
-	screenshotDir := filepath.Join(t.workspaceDir, "screenshots")
+	home, _ := os.UserHomeDir()
+	screenshotDir := filepath.Join(home, ".ubot", "workspace", "screenshots")
 	if err := os.MkdirAll(screenshotDir, 0755); err != nil {
 		return "", fmt.Errorf("browser_use screenshot: failed to create directory: %w", err)
 	}
@@ -666,7 +889,6 @@ func (t *BrowserTool) getCurrentPageURL(bi *browserInstance) (string, error) {
 }
 
 // executeJSOnPage executes JavaScript on the current page via CDP.
-// This uses Chrome's /json endpoints and a WebSocket-free approach.
 func (t *BrowserTool) executeJSOnPage(ctx context.Context, bi *browserInstance, js string) (string, error) {
 	// Get a page target.
 	targetID, err := t.getPageTargetID(bi)
@@ -674,12 +896,6 @@ func (t *BrowserTool) executeJSOnPage(ctx context.Context, bi *browserInstance, 
 		return "", err
 	}
 
-	// Use Chrome's /json/evaluate is not a standard endpoint.
-	// Instead, we use a helper script approach via the exec tool pattern.
-	// For JS execution, we can use Chrome's --eval flag on an already-running page.
-
-	// The most reliable HTTP-only approach for CDP is to use the fetch-based
-	// protocol. We'll craft a CDP message as HTTP POST.
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"id":     1,
 		"method": "Runtime.evaluate",
@@ -701,8 +917,6 @@ func (t *BrowserTool) executeJSOnPage(ctx context.Context, bi *browserInstance, 
 
 	resp, err := client.Do(req)
 	if err != nil {
-		// CDP HTTP protocol endpoint may not be available; fall back to
-		// reporting the target state.
 		return fmt.Sprintf("JS execution not available via HTTP CDP (target: %s). Use browse_page for content retrieval.", targetID), nil
 	}
 	defer resp.Body.Close()
@@ -745,4 +959,22 @@ func collapseWhitespace(s string) string {
 		}
 	}
 	return strings.Join(result, "\n")
+}
+
+// expandTilde expands ~ to the user's home directory.
+func expandTilde(path string) string {
+	if len(path) > 0 && path[0] == '~' {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		if len(path) == 1 {
+			return home
+		}
+		if path[1] == '/' || path[1] == filepath.Separator {
+			return filepath.Join(home, path[2:])
+		}
+		return filepath.Join(home, path[1:])
+	}
+	return path
 }
